@@ -26,13 +26,16 @@ export const saveStaticBet = async (userId, tournamentId, data) => {
 
 // ─── Tournament data helpers ──────────────────────────────────────────────────
 
+// Derive teams from matches — only teams that actually play in this season
 export const getTournamentTeams = async (tournamentId) => {
-  const q = query(
-    collection(db, 'tournaments', tournamentId, 'teams'),
-    orderBy('name')
-  )
-  const snap = await getDocs(q)
-  return snap.docs.map((d) => d.data())
+  const snap = await getDocs(collection(db, 'tournaments', tournamentId, 'matches'))
+  const map = new Map()
+  for (const d of snap.docs) {
+    const m = d.data()
+    if (m.homeTeam?.id && m.homeTeam?.name) map.set(m.homeTeam.id, m.homeTeam)
+    if (m.awayTeam?.id && m.awayTeam?.name) map.set(m.awayTeam.id, m.awayTeam)
+  }
+  return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'he'))
 }
 
 export const getTournamentPlayers = async (tournamentId) => {
