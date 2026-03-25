@@ -226,6 +226,41 @@ const savePlayersForTeams = async (tournamentId, teamsMap) => {
   }
 }
 
+/**
+ * Add teams manually to a tournament (fills gaps from incomplete API data).
+ * Each name becomes a team with a stable ID derived from the name.
+ * Existing API-sourced teams with the same name are not duplicated
+ * (IDs differ, but getTournamentTeams shows all).
+ *
+ * @param {string}   tournamentId
+ * @param {string[]} names  - array of team name strings
+ */
+export const addManualTeams = async (tournamentId, names) => {
+  const teams = names
+    .map((n) => n.trim())
+    .filter(Boolean)
+    .map((name) => ({
+      id:     'manual_' + name.toLowerCase().replace(/[^a-z0-9]/g, '_'),
+      name,
+      manual: true,
+    }))
+  if (teams.length === 0) return 0
+
+  // Store as array on the tournament doc (replace whole array to avoid dupes)
+  const ref  = doc(db, 'tournaments', tournamentId)
+  const snap = await getDoc(ref)
+  const existing = (snap.data()?.manualTeams || [])
+  const existingIds = new Set(existing.map((t) => t.id))
+  const newTeams = teams.filter((t) => !existingIds.has(t.id))
+  if (newTeams.length === 0) return 0
+
+  await updateDoc(ref, {
+    manualTeams: [...existing, ...newTeams],
+    updatedAt: serverTimestamp(),
+  })
+  return newTeams.length
+}
+
 export const activateTournament = (tournamentId) =>
   updateDoc(doc(db, 'tournaments', tournamentId), {
     status: 'active', updatedAt: serverTimestamp(),

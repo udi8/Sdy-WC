@@ -26,19 +26,29 @@ export const saveStaticBet = async (userId, tournamentId, data) => {
 
 // ─── Tournament data helpers ──────────────────────────────────────────────────
 
-// Derive teams from matches.
-// fromDate (optional "YYYY-MM-DD"): include only teams that appear in matches
-// from that date onwards — so if admin sets "2026-03-01", only teams still
-// active in the tournament from that stage appear.
+// Derive teams from matches + any manually-added teams on the tournament doc.
+// fromDate: only include teams with a match on or after this date.
 export const getTournamentTeams = async (tournamentId, fromDate = null) => {
-  const snap = await getDocs(collection(db, 'tournaments', tournamentId, 'matches'))
+  const [matchSnap, tournamentSnap] = await Promise.all([
+    getDocs(collection(db, 'tournaments', tournamentId, 'matches')),
+    getDoc(doc(db, 'tournaments', tournamentId)),
+  ])
+
   const map = new Map()
-  for (const d of snap.docs) {
+
+  // 1. Teams from matches
+  for (const d of matchSnap.docs) {
     const m = d.data()
     if (fromDate && m.date && m.date < fromDate) continue
     if (m.homeTeam?.id && m.homeTeam?.name) map.set(m.homeTeam.id, m.homeTeam)
     if (m.awayTeam?.id && m.awayTeam?.name) map.set(m.awayTeam.id, m.awayTeam)
   }
+
+  // 2. Manually-added teams (fill gaps from incomplete API data)
+  for (const t of (tournamentSnap.data()?.manualTeams || [])) {
+    if (t.id && t.name && !map.has(t.id)) map.set(t.id, t)
+  }
+
   return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'he'))
 }
 

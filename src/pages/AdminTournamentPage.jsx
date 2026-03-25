@@ -3,7 +3,7 @@ import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
 import { db } from '../services/firebase/config'
 import { getLeague } from '../services/api/sportsDb'
 import { POPULAR_LEAGUES } from '../data/leagues'
-import { importTournament, importTournamentPlayers, activateTournament, deactivateTournament, deleteTournament, TOTAL_PLAYER_CHUNKS } from '../services/firebase/tournaments'
+import { importTournament, importTournamentPlayers, addManualTeams, activateTournament, deactivateTournament, deleteTournament, TOTAL_PLAYER_CHUNKS } from '../services/firebase/tournaments'
 import { toast } from 'react-toastify'
 import './AdminTournamentPage.css'
 
