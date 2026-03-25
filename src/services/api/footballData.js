@@ -10,25 +10,20 @@ const fetchFD = async (path) => {
   return res.json()
 }
 
-export const searchCompetitions = (name) =>
-  fetchFD(`/competitions?name=${encodeURIComponent(name)}`)
+// Returns all available competitions (used for search)
+export const getAllCompetitions = () => fetchFD('/competitions')
 
-export const getCompetition = (id) =>
-  fetchFD(`/competitions/${id}`)
+export const getCompetition = (id) => fetchFD(`/competitions/${id}`)
 
-export const getCompetitionTeams = (id) =>
-  fetchFD(`/competitions/${id}/teams`)
+export const getCompetitionTeams = (id) => fetchFD(`/competitions/${id}/teams`)
 
-export const getCompetitionMatches = (id) =>
-  fetchFD(`/competitions/${id}/matches`)
+export const getCompetitionMatches = (id) => fetchFD(`/competitions/${id}/matches`)
 
 export const getCompetitionScorers = (id) =>
   fetchFD(`/competitions/${id}/scorers?limit=50`)
 
-export const getMatch = (id) =>
-  fetchFD(`/matches/${id}`)
+export const getMatch = (id) => fetchFD(`/matches/${id}`)
 
-// Returns today's matches across all competitions we track
 export const getTodayMatches = () =>
   fetchFD(`/matches?dateFrom=${today()}&dateTo=${today()}`)
 

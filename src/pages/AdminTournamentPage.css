@@ -1,0 +1,186 @@
+.admin-tournament-page h2 {
+  color: var(--color-primary);
+  margin-bottom: 1.5rem;
+}
+
+.admin-tournament-page h3 {
+  font-size: 1rem;
+  color: var(--color-primary);
+  margin-bottom: 1rem;
+}
+
+/* Search card */
+.tournament-search {
+  margin-bottom: 1.5rem;
+}
+
+.search-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.search-loading {
+  white-space: nowrap;
+  font-size: 0.9rem;
+}
+
+/* Competition results */
+.competition-list {
+  list-style: none;
+  margin-top: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.competition-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--color-border);
+  background: #fff;
+  transition: background var(--transition);
+}
+
+.competition-item:last-child {
+  border-bottom: none;
+}
+
+.competition-item:hover {
+  background: var(--color-bg);
+}
+
+.competition-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.competition-emblem {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.competition-info strong {
+  display: block;
+  font-size: 0.95rem;
+}
+
+.competition-meta {
+  font-size: 0.8rem;
+  display: block;
+}
+
+.competition-item .btn {
+  min-height: 40px;
+  padding: 0.4rem 1rem;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
+/* Import progress */
+.import-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  background: #dbeafe;
+  border-radius: var(--radius-sm);
+  color: #1e40af;
+  font-weight: 600;
+}
+
+.import-spinner {
+  width: 20px;
+  height: 20px;
+  border: 3px solid #93c5fd;
+  border-top-color: #1e40af;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Tournaments list */
+.tournaments-list {
+  margin-top: 0.5rem;
+}
+
+.tournaments-list h3 {
+  margin-bottom: 0.75rem;
+}
+
+.tournament-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.tournament-row-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.tournament-emblem {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+}
+
+.tournament-row-info strong {
+  display: block;
+}
+
+.tournament-meta {
+  font-size: 0.82rem;
+  display: block;
+}
+
+.tournament-row-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.tournament-row-actions .btn {
+  min-height: 40px;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 768px) {
+  .competition-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .competition-item .btn {
+    width: 100%;
+  }
+
+  .tournament-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .tournament-row-actions .btn {
+    width: 100%;
+  }
+}
