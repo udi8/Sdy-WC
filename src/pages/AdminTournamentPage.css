@@ -14,15 +14,19 @@
   margin-bottom: 1.5rem;
 }
 
-.search-row {
+/* Competition actions (season input + import button) */
+.competition-actions {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.5rem;
+  flex-shrink: 0;
 }
 
-.search-loading {
-  white-space: nowrap;
-  font-size: 0.9rem;
+.season-input {
+  width: 110px;
+  font-size: 0.85rem;
+  padding: 0.35rem 0.5rem;
+  text-align: center;
 }
 
 /* Competition results */
@@ -171,8 +175,16 @@
     align-items: flex-start;
   }
 
-  .competition-item .btn {
+  .competition-actions {
     width: 100%;
+  }
+
+  .season-input {
+    flex: 1;
+  }
+
+  .competition-actions .btn {
+    white-space: nowrap;
   }
 
   .tournament-row {
