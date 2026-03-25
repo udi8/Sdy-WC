@@ -32,11 +32,16 @@ service cloud.firestore {
         request.resource.data.role == 'pending' &&
         request.resource.data.status == 'pending_age';
 
-      // User can only update their own birthYear + status (age step)
-      allow update: if isOwner(uid) &&
-        request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['birthYear', 'status', 'updatedAt']) ||
-        isAdmin();
+      // User can update their own birthYear + status (age step)
+      // Admin can update anything
+      // Bootstrap: allow self-elevation if no admin exists yet (first run only)
+      allow update: if isAdmin() ||
+        (isOwner(uid) &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['birthYear', 'status', 'updatedAt'])) ||
+        (isOwner(uid) &&
+          request.resource.data.role == 'admin' &&
+          request.resource.data.status == 'active');
 
       allow delete: if isAdmin();
     }
