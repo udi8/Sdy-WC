@@ -19,17 +19,14 @@ import {
 // Main tournament phases (group stage, knockouts) use round ≤ 200.
 const MAX_ROUND = 200
 
-// For these tournaments the participant list is fixed before any match is played
-// (national team competitions). lookup_all_teams returns the correct roster,
-// so we merge it in to fill gaps when the events feed is truncated by the free tier.
+// For these tournaments the participant list is fixed before any match is played.
+// lookup_all_teams returns the correct roster, so we merge it in to fill gaps
+// when the events feed is truncated by the free tier.
 const ROSTER_BASED = new Set(['4429', '4421', '4422', '4423', '4415'])
 
 /**
- * Import a tournament from TheSportsDB into Firebase.
- * @param {object} league    - TheSportsDB league object (idLeague, strLeague, ...)
- * @param {string} season    - Season string e.g. "2025-2026" or "2026"
- * @param {string} [fromDate] - "YYYY-MM-DD" — teams in bets are derived from matches
- *                              on or after this date (to show only remaining teams)
+ * Import a tournament — saves matches + teams only (no players).
+ * Use importTournamentPlayers() separately to import players in two halves.
  */
 export const importTournament = async (league, season, fromDate = null) => {
   const tournamentId = String(league.idLeague)
@@ -38,14 +35,11 @@ export const importTournament = async (league, season, fromDate = null) => {
   }
   const name = league.strLeague || league.strLeagueAlternate || '—'
 
-  const tournamentRef = doc(db, 'tournaments', tournamentId)
-
-  // 1. Save tournament doc
-  await setDoc(tournamentRef, {
+  await setDoc(doc(db, 'tournaments', tournamentId), {
     id: tournamentId,
     name,
     season,
-    fromDate: fromDate || null,   // used by bets UI to show only remaining teams
+    fromDate: fromDate || null,
     emblem: league.strBadge || league.strLogo || null,
     area:   league.strCountry || null,
     sport:  league.strSport   || 'Soccer',
@@ -54,20 +48,47 @@ export const importTournament = async (league, season, fromDate = null) => {
     updatedAt: serverTimestamp(),
   })
 
-  // 2. Fetch & save matches (source of truth for teams).
-  //    Qualifying rounds (round > MAX_ROUND) are filtered out automatically.
   const teams = await importMatches(tournamentId, season)
 
-  // 3. For national-team tournaments (WC, Euros, Copa…) supplement with the
-  //    league roster endpoint — free-tier events feed may be truncated.
   if (ROSTER_BASED.has(tournamentId)) {
     await mergeRosterTeams(tournamentId, teams)
   }
 
-  // 4. Save players for each team
-  await importPlayers(tournamentId, teams)
-
   return tournamentId
+}
+
+/**
+ * Import players for a tournament in two halves to avoid API rate limits.
+ * @param {string} tournamentId
+ * @param {'AL' | 'MZ'} half  — 'AL' = teams A–L, 'MZ' = teams M–Z
+ */
+export const importTournamentPlayers = async (tournamentId, half) => {
+  // Read teams from existing matches subcollection
+  const snap = await getDocs(collection(db, 'tournaments', tournamentId, 'matches'))
+  const teamsMap = new Map()
+  for (const d of snap.docs) {
+    const m = d.data()
+    if (m.homeTeam?.id && m.homeTeam?.name) teamsMap.set(m.homeTeam.id, m.homeTeam)
+    if (m.awayTeam?.id && m.awayTeam?.name) teamsMap.set(m.awayTeam.id, m.awayTeam)
+  }
+  // Also supplement from roster for roster-based tournaments
+  if (ROSTER_BASED.has(tournamentId)) {
+    await mergeRosterTeams(tournamentId, teamsMap)
+  }
+
+  const isFirstHalf = (name) => {
+    const ch = name.trim()[0]?.toUpperCase() || 'A'
+    return ch <= 'L'
+  }
+
+  const filtered = new Map(
+    [...teamsMap.entries()].filter(([, t]) =>
+      half === 'AL' ? isFirstHalf(t.name) : !isFirstHalf(t.name)
+    )
+  )
+
+  await savePlayersForTeams(tournamentId, filtered)
+  return filtered.size
 }
 
 /**
@@ -102,8 +123,6 @@ const mapStatus = (s) => {
   return 'scheduled'
 }
 
-// Fetch teams from the league roster endpoint and add any missing ones to teamsMap.
-// Used for national-team competitions where lookup_all_teams is reliable.
 const mergeRosterTeams = async (tournamentId, teamsMap) => {
   let data
   try { data = await getLeagueTeams(tournamentId) } catch { return }
@@ -119,14 +138,10 @@ const mergeRosterTeams = async (tournamentId, teamsMap) => {
   }
 }
 
-// Import ALL matches for the season and return unique teams.
-// Qualifying rounds (intRound > MAX_ROUND) are excluded — they are
-// pre-season mini-leagues irrelevant to the main tournament.
 const importMatches = async (tournamentId, season) => {
   let matchesData
   try { matchesData = await getSeasonMatches(tournamentId, season) } catch { return new Map() }
   const allEvents = matchesData?.events || []
-  // Exclude qualifying rounds (TheSportsDB encodes them as round > 200, e.g. 400)
   const events = allEvents.filter((e) => {
     const r = Number(e.intRound)
     return !r || r <= MAX_ROUND
@@ -168,7 +183,6 @@ const importMatches = async (tournamentId, season) => {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
-// Fetch with retry on 429 (rate limit) — waits 2 s then 4 s then gives up
 const fetchPlayersWithRetry = async (teamId) => {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -176,20 +190,17 @@ const fetchPlayersWithRetry = async (teamId) => {
     } catch (err) {
       const is429 = err.message?.includes('429')
       if (!is429 || attempt === 2) return null
-      await sleep((attempt + 1) * 2000) // 2 s, then 4 s
+      await sleep((attempt + 1) * 2000)
     }
   }
   return null
 }
 
-// Save players for each team — 400 ms gap between teams to stay under rate limit
-const importPlayers = async (tournamentId, teamsMap) => {
-  if (!teamsMap || teamsMap.size === 0) return
-
+const savePlayersForTeams = async (tournamentId, teamsMap) => {
   for (const [teamId, team] of teamsMap) {
     const playersData = await fetchPlayersWithRetry(teamId)
+    await sleep(400)
     const players = playersData?.player || []
-    await sleep(400) // stay under free-tier rate limit
     if (players.length === 0) continue
 
     let batch = writeBatch(db)
