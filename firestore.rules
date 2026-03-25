@@ -117,6 +117,12 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // ─── Leagues catalogue (synced from TheSportsDB) ────────
+    match /leagues/{leagueId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
     // ─── System config (API state, poller info) ─────────────
     match /system/{docId} {
       allow read: if isActiveUser() || isAdmin();

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
 import { db } from '../services/firebase/config'
-import { getAllLeagues, getLeague } from '../services/api/sportsDb'
+import { getLeague } from '../services/api/sportsDb'
+import { syncAllLeagues, getStoredLeagues } from '../services/firebase/leagues'
 import { importTournament, activateTournament, deactivateTournament } from '../services/firebase/tournaments'
 import { toast } from 'react-toastify'
 import './AdminTournamentPage.css'
@@ -13,19 +14,21 @@ const defaultSeason = () => {
 
 const AdminTournamentPage = () => {
   const [allLeagues, setAllLeagues]   = useState([])
-  const [loading, setLoading]         = useState(true)
+  const [loadingLeagues, setLoadingLeagues] = useState(true)
+  const [syncing, setSyncing]         = useState(false)
+  const [syncProgress, setSyncProgress] = useState('')
   const [search, setSearch]           = useState('')
   const [seasons, setSeasons]         = useState({})
   const [importingId, setImportingId] = useState(null)
   const [importProgress, setImportProgress] = useState('')
   const [tournaments, setTournaments] = useState([])
 
-  // Load all leagues on mount
+  // Load leagues from Firestore on mount
   useEffect(() => {
-    getAllLeagues()
-      .then((data) => setAllLeagues(data.leagues || []))
-      .catch((err) => toast.error('שגיאה בטעינה: ' + err.message))
-      .finally(() => setLoading(false))
+    getStoredLeagues()
+      .then((leagues) => setAllLeagues(leagues))
+      .catch(() => {})
+      .finally(() => setLoadingLeagues(false))
   }, [])
 
   // Load existing tournaments
@@ -36,38 +39,57 @@ const AdminTournamentPage = () => {
     )
   }, [])
 
+  const handleSync = async () => {
+    if (!window.confirm('לסנכרן את כל הליגות מ-TheSportsDB ל-Firebase?\nהפעולה לוקחת כ-30 שניות.')) return
+    setSyncing(true)
+    setSyncProgress('מתחיל סנכרון...')
+    try {
+      const total = await syncAllLeagues((msg) => setSyncProgress(msg))
+      const leagues = await getStoredLeagues()
+      setAllLeagues(leagues)
+      setSyncProgress('')
+      toast.success(`✅ סונכרנו ${total} ליגות בהצלחה!`)
+    } catch (err) {
+      toast.error('שגיאה בסנכרון: ' + err.message)
+      setSyncProgress('')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   const term = search.trim().toLowerCase()
   const filtered = term.length < 2
     ? allLeagues
     : allLeagues.filter((l) =>
-        l.strLeague?.toLowerCase().includes(term) ||
-        l.strLeagueAlternate?.toLowerCase().includes(term) ||
-        l.strSport?.toLowerCase().includes(term)
+        l.name?.toLowerCase().includes(term) ||
+        l.alternate?.toLowerCase().includes(term) ||
+        l.country?.toLowerCase().includes(term) ||
+        l.sport?.toLowerCase().includes(term)
       )
 
   const getSeason = (id) => seasons[id] ?? defaultSeason()
   const setSeason = (id, val) => setSeasons((p) => ({ ...p, [id]: val }))
 
   const handleImport = async (league) => {
-    // If we only have basic data (from getAllLeagues), fetch full details first
-    let fullLeague = league
-    if (!league.strCountry && !league.strBadge) {
-      try {
-        const data = await getLeague(league.idLeague)
-        fullLeague = data.leagues?.[0] || league
-      } catch { /* use basic data */ }
-    }
-
-    const season = getSeason(league.idLeague)
+    const season = getSeason(league.id)
     if (!season.trim()) { toast.error('יש להזין עונה'); return }
-    if (!window.confirm(`לייבא "${fullLeague.strLeague}" עונת ${season}?`)) return
+    if (!window.confirm(`לייבא "${league.name}" עונת ${season}?`)) return
 
-    setImportingId(league.idLeague)
-    setImportProgress(`מייבא "${fullLeague.strLeague}" עונת ${season}...`)
+    setImportingId(league.id)
+    setImportProgress(`מייבא "${league.name}" עונת ${season}...`)
     try {
+      // Fetch full league details from TheSportsDB for badge/country
+      let fullLeague = { idLeague: league.id, strLeague: league.name,
+        strLeagueAlternate: league.alternate, strSport: league.sport,
+        strCountry: league.country, strBadge: league.badge }
+      try {
+        const data = await getLeague(league.id)
+        if (data.leagues?.[0]) fullLeague = data.leagues[0]
+      } catch { /* use cached data */ }
+
       await importTournament(fullLeague, season)
       setImportProgress('')
-      toast.success(`✅ "${fullLeague.strLeague}" יובא בהצלחה!`)
+      toast.success(`✅ "${league.name}" יובא בהצלחה!`)
     } catch (err) {
       console.error(err)
       toast.error('שגיאה בייבוא: ' + err.message)
@@ -97,63 +119,90 @@ const AdminTournamentPage = () => {
       <h2>🏆 יצירת טורניר</h2>
 
       <div className="tournament-search card">
-        <h3>בחר ליגה או תחרות</h3>
+        {/* Header row: title + sync button */}
+        <div className="search-header">
+          <h3>בחר ליגה</h3>
+          <button
+            className="btn btn-outline btn-sm"
+            onClick={handleSync}
+            disabled={syncing || !!importingId}
+          >
+            {syncing ? '⏳ מסנכרן...' : '🔄 סנכרן ליגות'}
+          </button>
+        </div>
 
-        <input
-          type="text"
-          className="form-control"
-          placeholder={loading ? 'טוען רשימת ליגות...' : `חפש מתוך ${allLeagues.length} ליגות — World Cup, Champions League, ליגת העל...`}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          disabled={loading || !!importingId}
-          autoFocus
-        />
-
-        {loading && (
-          <div className="import-progress mt-1">
+        {/* Sync progress */}
+        {syncProgress && (
+          <div className="import-progress mb-1">
             <div className="import-spinner" />
-            <span>טוען רשימת ליגות מ-TheSportsDB...</span>
+            <span>{syncProgress}</span>
           </div>
         )}
 
-        {!loading && (
-          <p className="text-muted" style={{ fontSize: '0.8rem', marginTop: '0.4rem' }}>
-            מציג {Math.min(filtered.length, 100)} מתוך {filtered.length} תוצאות
-          </p>
+        {allLeagues.length === 0 && !loadingLeagues && !syncing && (
+          <div className="empty-leagues">
+            <p>אין ליגות שמורות עדיין.</p>
+            <p className="text-muted">לחץ על <strong>🔄 סנכרן ליגות</strong> כדי לטעון את כל הליגות מ-TheSportsDB.</p>
+          </div>
         )}
 
-        {!loading && filtered.length > 0 && (
-          <ul className="competition-list mt-1">
-            {filtered.slice(0, 100).map((league) => (
-              <li key={league.idLeague} className="competition-item">
-                <div className="competition-info">
-                  <div>
-                    <strong>{league.strLeague}</strong>
-                    <span className="text-muted competition-meta">
-                      {[league.strSport, league.strLeagueAlternate].filter(Boolean).join(' · ')}
-                    </span>
+        {loadingLeagues && (
+          <p className="text-muted mt-1">טוען ליגות שמורות...</p>
+        )}
+
+        {allLeagues.length > 0 && (
+          <>
+            <input
+              type="text"
+              className="form-control mt-1"
+              placeholder={`חפש מתוך ${allLeagues.length} ליגות — World Cup, Champions League, ליגת העל...`}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              disabled={!!importingId}
+              autoFocus
+            />
+            <p className="text-muted" style={{ fontSize: '0.8rem', marginTop: '0.35rem' }}>
+              {term.length < 2
+                ? `הצג הכל (${allLeagues.length}) — התחל להקליד לסינון`
+                : `${filtered.length} תוצאות`}
+            </p>
+
+            <ul className="competition-list mt-1">
+              {filtered.slice(0, 150).map((league) => (
+                <li key={league.id} className="competition-item">
+                  <div className="competition-info">
+                    {league.badge && (
+                      <img src={league.badge} alt="" className="competition-emblem" />
+                    )}
+                    <div>
+                      <strong>{league.name}</strong>
+                      <span className="text-muted competition-meta">
+                        {[league.country, league.sport !== 'Soccer' ? league.sport : null]
+                          .filter(Boolean).join(' · ')}
+                      </span>
+                    </div>
                   </div>
-                </div>
-                <div className="competition-actions">
-                  <input
-                    type="text"
-                    className="form-control season-input"
-                    value={getSeason(league.idLeague)}
-                    onChange={(e) => setSeason(league.idLeague, e.target.value)}
-                    placeholder="עונה"
-                    disabled={!!importingId}
-                  />
-                  <button
-                    className="btn btn-primary"
-                    onClick={() => handleImport(league)}
-                    disabled={!!importingId}
-                  >
-                    {importingId === league.idLeague ? '⏳' : '⬇️ ייבא'}
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
+                  <div className="competition-actions">
+                    <input
+                      type="text"
+                      className="form-control season-input"
+                      value={getSeason(league.id)}
+                      onChange={(e) => setSeason(league.id, e.target.value)}
+                      placeholder="עונה"
+                      disabled={!!importingId}
+                    />
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => handleImport(league)}
+                      disabled={!!importingId}
+                    >
+                      {importingId === league.id ? '⏳' : '⬇️ ייבא'}
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
 
         {importProgress && (
