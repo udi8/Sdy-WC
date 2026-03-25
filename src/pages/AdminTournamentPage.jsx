@@ -1,96 +1,136 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
 import { db } from '../services/firebase/config'
-import { searchLeagues } from '../services/api/sportsDb'
-import { importTournament, activateTournament, deactivateTournament } from '../services/firebase/tournaments'
+import { getLeague } from '../services/api/sportsDb'
+import { POPULAR_LEAGUES } from '../data/leagues'
+import { importTournament, activateTournament, deactivateTournament, deleteTournament } from '../services/firebase/tournaments'
 import { toast } from 'react-toastify'
 import './AdminTournamentPage.css'
 
-const currentYear = new Date().getFullYear()
-const seasonOptions = [currentYear - 1, currentYear, currentYear + 1]
+const defaultSeason = () => {
+  const y = new Date().getFullYear()
+  return new Date().getMonth() >= 7 ? `${y}-${y + 1}` : `${y - 1}-${y}`
+}
 
 const AdminTournamentPage = () => {
-  const [searchTerm, setSearchTerm] = useState('')
-  const [leagues, setLeagues] = useState([])
-  const [searching, setSearching] = useState(false)
-  const [season, setSeason] = useState(String(currentYear))
-  const [importing, setImporting] = useState(false)
+  const [search, setSearch]           = useState('')
+  const [customId, setCustomId]       = useState('')
+  const [customResult, setCustomResult] = useState(null)
+  const [fetchingCustom, setFetchingCustom] = useState(false)
+  const [seasons, setSeasons]         = useState({})
+  const [fromDates, setFromDates]     = useState({})
+  const [importingId, setImportingId] = useState(null)
+  const [deletingId, setDeletingId]   = useState(null)
   const [importProgress, setImportProgress] = useState('')
   const [tournaments, setTournaments] = useState([])
-  const debounceRef = useRef(null)
 
-  // Load existing tournaments from Firebase
   useEffect(() => {
     const q = query(collection(db, 'tournaments'), orderBy('createdAt', 'desc'))
-    const unsub = onSnapshot(q, (snap) => {
+    return onSnapshot(q, (snap) =>
       setTournaments(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
-    })
-    return unsub
+    )
   }, [])
 
-  // Debounced search as user types
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    if (!searchTerm.trim()) {
-      setLeagues([])
-      return
+  const term = search.trim().toLowerCase()
+  const filtered = term.length < 1
+    ? POPULAR_LEAGUES
+    : POPULAR_LEAGUES.filter((l) =>
+        l.name.toLowerCase().includes(term) ||
+        l.altName?.toLowerCase().includes(term) ||
+        l.country.toLowerCase().includes(term) ||
+        l.sport.toLowerCase().includes(term)
+      )
+
+  const getSeason   = (id) => seasons[id]   ?? defaultSeason()
+  const setSeason   = (id, val) => setSeasons((p)   => ({ ...p, [id]: val }))
+  const getFromDate = (id) => fromDates[id] ?? ''
+  const setFromDate = (id, val) => setFromDates((p) => ({ ...p, [id]: val }))
+
+  // Look up a custom league by TheSportsDB ID
+  const handleCustomLookup = async () => {
+    if (!customId.trim()) return
+    setFetchingCustom(true)
+    setCustomResult(null)
+    try {
+      const data = await getLeague(customId.trim())
+      const l = data.leagues?.[0]
+      if (!l) { toast.error(`לא נמצאה ליגה עם ID ${customId}`); return }
+      setCustomResult({
+        id: l.idLeague,
+        name: l.strLeague,
+        altName: l.strLeagueAlternate || '',
+        country: l.strCountry || '',
+        sport: l.strSport || 'Soccer',
+        badge: l.strBadge || l.strLogo || '',
+        _full: l,
+      })
+    } catch (err) {
+      toast.error('שגיאה: ' + err.message)
+    } finally {
+      setFetchingCustom(false)
     }
-    debounceRef.current = setTimeout(async () => {
-      setSearching(true)
-      try {
-        const data = await searchLeagues(searchTerm.trim())
-        setLeagues(data.leagues || [])
-      } catch (err) {
-        toast.error('שגיאה בחיפוש: ' + err.message)
-        setLeagues([])
-      } finally {
-        setSearching(false)
-      }
-    }, 500)
-  }, [searchTerm])
+  }
 
   const handleImport = async (league) => {
-    if (importing) return
-    const seasonLabel = `${season}-${Number(season) + 1}`
-    const confirmed = window.confirm(
-      `לייבא את "${league.strLeague}" עונת ${seasonLabel}?\nפעולה זו תשמור את כל הקבוצות, השחקנים והמשחקים ב-Firebase.`
-    )
-    if (!confirmed) return
+    const season   = getSeason(league.id)
+    const fromDate = getFromDate(league.id).trim() || null
+    if (!season.trim()) { toast.error('יש להזין עונה'); return }
+    const note = fromDate ? ` (מתאריך ${fromDate})` : ''
+    if (!window.confirm(`לייבא "${league.name}" עונת ${season}${note}?`)) return
 
-    setImporting(true)
-    setImportProgress('מייבא טורניר...')
+    setImportingId(league.id)
+    setImportProgress(`מייבא "${league.name}" עונת ${season}${note}...`)
     try {
-      setImportProgress('שומר נתוני טורניר, קבוצות ושחקנים...')
-      await importTournament(league, seasonLabel)
+      // Fetch full details if we only have static data (no badge etc.)
+      let fullLeague = league._full
+      if (!fullLeague) {
+        try {
+          const data = await getLeague(league.id)
+          fullLeague = data.leagues?.[0]
+        } catch { /* ignore */ }
+        if (!fullLeague) {
+          // Build minimal object from static data
+          fullLeague = {
+            idLeague: league.id, strLeague: league.name,
+            strLeagueAlternate: league.altName || '',
+            strCountry: league.country, strSport: league.sport,
+          }
+        }
+      }
+      await importTournament(fullLeague, season, fromDate)
       setImportProgress('')
-      setSearchTerm('')
-      setLeagues([])
-      toast.success(`✅ "${league.strLeague}" יובא בהצלחה!`)
+      setCustomResult(null)
+      setCustomId('')
+      toast.success(`✅ "${league.name}" יובא בהצלחה!`)
     } catch (err) {
       console.error(err)
       toast.error('שגיאה בייבוא: ' + err.message)
       setImportProgress('')
     } finally {
-      setImporting(false)
+      setImportingId(null)
     }
   }
 
-  const handleActivate = async (t) => {
+  const handleDelete = async (t) => {
+    if (!window.confirm(`למחוק את "${t.name}" ואת כל נתוני המשחקים/שחקנים שלו? פעולה זו בלתי הפיכה.`)) return
+    setDeletingId(t.id)
     try {
-      await activateTournament(t.id)
-      toast.success(`"${t.name}" הופעל!`)
+      await deleteTournament(t.id)
+      toast.success(`"${t.name}" נמחק.`)
     } catch (err) {
-      toast.error('שגיאה: ' + err.message)
+      toast.error('שגיאה במחיקה: ' + err.message)
+    } finally {
+      setDeletingId(null)
     }
   }
 
+  const handleActivate   = async (t) => {
+    try { await activateTournament(t.id);   toast.success(`"${t.name}" הופעל!`) }
+    catch (err) { toast.error(err.message) }
+  }
   const handleDeactivate = async (t) => {
-    try {
-      await deactivateTournament(t.id)
-      toast.success(`"${t.name}" סומן כסיום.`)
-    } catch (err) {
-      toast.error('שגיאה: ' + err.message)
-    }
+    try { await deactivateTournament(t.id); toast.success(`"${t.name}" סומן כסיום.`) }
+    catch (err) { toast.error(err.message) }
   }
 
   const statusLabel = {
@@ -99,83 +139,113 @@ const AdminTournamentPage = () => {
     finished: { text: 'הסתיים', cls: 'badge-muted'   },
   }
 
+  const LeagueRow = ({ league }) => (
+    <li className="competition-item">
+      <div className="competition-info">
+        {league.badge && <img src={league.badge} alt="" className="competition-emblem" />}
+        <div>
+          <strong>{league.name}{league.altName ? ` / ${league.altName}` : ''}</strong>
+          <span className="text-muted competition-meta">
+            {[league.country, league.sport !== 'Soccer' ? league.sport : null].filter(Boolean).join(' · ')}
+          </span>
+        </div>
+      </div>
+      <div className="competition-actions">
+        <input
+          type="text"
+          className="form-control season-input"
+          value={getSeason(league.id)}
+          onChange={(e) => setSeason(league.id, e.target.value)}
+          placeholder="עונה"
+          disabled={!!importingId}
+        />
+        <input
+          type="date"
+          className="form-control season-input"
+          value={getFromDate(league.id)}
+          onChange={(e) => setFromDate(league.id, e.target.value)}
+          title="התחל מתאריך — מסנן משחקי בחינות וסיבובים מוקדמים"
+          disabled={!!importingId}
+        />
+        <button
+          className="btn btn-primary"
+          onClick={() => handleImport(league)}
+          disabled={!!importingId}
+        >
+          {importingId === league.id ? '⏳' : '⬇️ ייבא'}
+        </button>
+      </div>
+    </li>
+  )
+
   return (
     <div className="admin-tournament-page">
       <h2>🏆 יצירת טורניר</h2>
 
-      {/* Search */}
+      {/* Popular list with search */}
       <div className="tournament-search card">
-        <h3>חיפוש ליגה / תחרות</h3>
-
-        <div className="search-season-row">
-          <input
-            type="text"
-            className="form-control"
-            placeholder="הקלד שם ליגה — למשל: World Cup, Champions League, Premier League..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            disabled={importing}
-          />
-          <select
-            className="form-control season-select"
-            value={season}
-            onChange={(e) => setSeason(e.target.value)}
-            disabled={importing}
-          >
-            {seasonOptions.map((y) => (
-              <option key={y} value={String(y)}>
-                {y}-{y + 1}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {searching && <p className="text-muted mt-1">מחפש...</p>}
-
-        {/* Search results */}
-        {leagues.length > 0 && (
-          <ul className="competition-list">
-            {leagues.map((league) => (
-              <li key={league.idLeague} className="competition-item">
-                <div className="competition-info">
-                  {(league.strBadge || league.strLogo) && (
-                    <img
-                      src={league.strBadge || league.strLogo}
-                      alt=""
-                      className="competition-emblem"
-                    />
-                  )}
-                  <div>
-                    <strong>{league.strLeague}</strong>
-                    <span className="text-muted competition-meta">
-                      {league.strCountry}
-                      {league.strLeagueAlternate ? ` · ${league.strLeagueAlternate}` : ''}
-                      {league.strSport && league.strSport !== 'Soccer' ? ` · ${league.strSport}` : ''}
-                    </span>
-                  </div>
-                </div>
-                <button
-                  className="btn btn-primary"
-                  onClick={() => handleImport(league)}
-                  disabled={importing}
-                >
-                  {importing ? '⏳ מייבא...' : '⬇️ ייבא'}
-                </button>
-              </li>
-            ))}
-          </ul>
+        <h3>בחר ליגה או תחרות</h3>
+        <input
+          type="text"
+          className="form-control"
+          placeholder="חפש — World Cup, Champions League, ליגת העל, Israel..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          disabled={!!importingId}
+          autoFocus
+        />
+        {term.length > 0 && (
+          <p className="text-muted" style={{ fontSize: '0.8rem', marginTop: '0.35rem' }}>
+            {filtered.length} תוצאות
+          </p>
         )}
 
-        {searchTerm && !searching && leagues.length === 0 && (
-          <p className="text-muted mt-1">לא נמצאו ליגות עבור "{searchTerm}"</p>
+        <ul className="competition-list mt-1">
+          {filtered.map((l) => <LeagueRow key={l.id} league={l} />)}
+        </ul>
+
+        {filtered.length === 0 && (
+          <p className="text-muted mt-1">לא נמצאו תוצאות — נסה חיפוש לפי ID למטה</p>
         )}
 
-        {/* Import progress */}
         {importProgress && (
-          <div className="import-progress">
+          <div className="import-progress mt-1">
             <div className="import-spinner" />
             <span>{importProgress}</span>
           </div>
+        )}
+      </div>
+
+      {/* Custom ID lookup */}
+      <div className="tournament-search card">
+        <h3>ייבוא לפי ID מ-TheSportsDB</h3>
+        <p className="text-muted" style={{ fontSize: '0.85rem', marginBottom: '0.75rem' }}>
+          לא מצאת? גש ל-<strong>thesportsdb.com</strong>, חפש את הטורניר,
+          העתק את ה-ID מה-URL (למשל: <code>4480</code>) והדבק כאן.
+        </p>
+        <div className="search-row">
+          <input
+            type="text"
+            className="form-control"
+            placeholder="מספר ID — למשל 4480"
+            value={customId}
+            onChange={(e) => { setCustomId(e.target.value); setCustomResult(null) }}
+            onKeyDown={(e) => e.key === 'Enter' && handleCustomLookup()}
+            disabled={!!importingId}
+          />
+          <button
+            className="btn btn-primary"
+            onClick={handleCustomLookup}
+            disabled={fetchingCustom || !!importingId}
+          >
+            {fetchingCustom ? '⏳' : '🔍 שלוף'}
+          </button>
+        </div>
+
+        {customResult && (
+          <ul className="competition-list mt-1">
+            <LeagueRow league={customResult} />
+          </ul>
         )}
       </div>
 
@@ -188,35 +258,28 @@ const AdminTournamentPage = () => {
             return (
               <div key={t.id} className="tournament-row card">
                 <div className="tournament-row-info">
-                  {t.emblem && (
-                    <img src={t.emblem} alt="" className="tournament-emblem" />
-                  )}
+                  {t.emblem && <img src={t.emblem} alt="" className="tournament-emblem" />}
                   <div>
                     <strong>{t.name}</strong>
-                    <span className="text-muted tournament-meta">
-                      {t.area} · עונה: {t.season} · ID: {t.id}
-                    </span>
+                    <span className="text-muted tournament-meta">{t.area} · עונה: {t.season}</span>
                   </div>
                   <span className={`badge ${s.cls}`}>{s.text}</span>
                 </div>
-
                 <div className="tournament-row-actions">
                   {t.status === 'setup' && (
-                    <button
-                      className="btn btn-primary"
-                      onClick={() => handleActivate(t)}
-                    >
-                      ▶️ הפעל
-                    </button>
+                    <button className="btn btn-primary" onClick={() => handleActivate(t)}>▶️ הפעל</button>
                   )}
                   {t.status === 'active' && (
-                    <button
-                      className="btn btn-outline"
-                      onClick={() => handleDeactivate(t)}
-                    >
-                      ⏹️ סיים
-                    </button>
+                    <button className="btn btn-outline" onClick={() => handleDeactivate(t)}>⏹️ סיים</button>
                   )}
+                  <button
+                    className="btn btn-danger"
+                    onClick={() => handleDelete(t)}
+                    disabled={!!deletingId}
+                    title="מחק טורניר ואת כל הנתונים שלו"
+                  >
+                    {deletingId === t.id ? '⏳' : '🗑️'}
+                  </button>
                 </div>
               </div>
             )
