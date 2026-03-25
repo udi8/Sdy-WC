@@ -8,147 +8,131 @@ import {
 } from 'firebase/firestore'
 import { db } from './config'
 import {
-  getCompetition,
-  getCompetitionTeams,
-  getCompetitionMatches,
-  getCompetitionScorers,
-} from '../api/footballData'
+  getLeagueTeams,
+  getTeamPlayers,
+  getSeasonMatches,
+} from '../api/sportsDb'
 
 /**
- * Import a full tournament from football-data.org into Firebase.
- * Creates: tournaments/{id}, teams subcollection, players subcollection, matches subcollection.
+ * Import a tournament from TheSportsDB into Firebase.
+ * @param {object} league  - TheSportsDB league object (idLeague, strLeague, ...)
+ * @param {string} season  - Season string e.g. "2025-2026" or "2026"
  */
-export const importTournament = async (competition) => {
-  const tournamentId = String(competition.id)
+export const importTournament = async (league, season) => {
+  const tournamentId = String(league.idLeague)
+  if (!tournamentId || tournamentId === 'undefined') {
+    throw new Error('League ID is missing')
+  }
+  const name = league.strLeague || league.strLeagueAlternate || '—'
+
   const tournamentRef = doc(db, 'tournaments', tournamentId)
 
   // 1. Save tournament doc
   await setDoc(tournamentRef, {
     id: tournamentId,
-    name: competition.name,
-    code: competition.code,
-    emblem: competition.emblem || null,
-    area: competition.area?.name || null,
+    name,
+    season,
+    emblem: league.strBadge || league.strLogo || null,
+    area:   league.strCountry || null,
+    sport:  league.strSport   || 'Soccer',
     status: 'setup',
-    currentMatchday: null,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   })
 
   // 2. Fetch & save teams + players
-  await importTeamsAndPlayers(tournamentId, competition.id)
+  await importTeamsAndPlayers(tournamentId)
 
   // 3. Fetch & save matches
-  await importMatches(tournamentId, competition.id)
+  await importMatches(tournamentId, season)
 
   return tournamentId
 }
 
-const importTeamsAndPlayers = async (tournamentId, competitionId) => {
-  const data = await getCompetitionTeams(competitionId)
+const importTeamsAndPlayers = async (tournamentId) => {
+  const data = await getLeagueTeams(tournamentId)
   const teams = data.teams || []
+  if (teams.length === 0) return
 
-  // Firestore batches are limited to 500 ops — chunk if needed
   const teamBatch = writeBatch(db)
-
   for (const team of teams) {
-    const teamRef = doc(db, 'tournaments', tournamentId, 'teams', String(team.id))
-    teamBatch.set(teamRef, {
-      id: String(team.id),
-      name: team.name,
-      shortName: team.shortName || team.name,
-      tla: team.tla || null,
-      crest: team.crest || null,
-      venue: team.venue || null,
+    const ref = doc(db, 'tournaments', tournamentId, 'teams', String(team.idTeam))
+    teamBatch.set(ref, {
+      id:        String(team.idTeam),
+      name:      team.strTeam        || '',
+      shortName: team.strTeamShort   || team.strTeam || '',
+      badge:     team.strBadge       || team.strLogo || null,
+      country:   team.strCountry     || null,
+      stadium:   team.strStadium     || null,
     })
   }
-
   await teamBatch.commit()
 
-  // Save players per team (may exceed 500 — use separate batches)
+  // Players per team — separate batches
   for (const team of teams) {
-    if (!team.squad || team.squad.length === 0) continue
+    let playersData
+    try { playersData = await getTeamPlayers(String(team.idTeam)) } catch { continue }
+    const players = playersData.player || []
+    if (players.length === 0) continue
 
     let batch = writeBatch(db)
     let count = 0
-
-    for (const player of team.squad) {
-      const playerRef = doc(
-        db,
-        'tournaments',
-        tournamentId,
-        'players',
-        String(player.id)
-      )
-      batch.set(playerRef, {
-        id: String(player.id),
-        name: player.name,
-        position: player.position || null,
-        nationality: player.nationality || null,
-        teamId: String(team.id),
-        teamName: team.name,
-        teamCrest: team.crest || null,
+    for (const p of players) {
+      const ref = doc(db, 'tournaments', tournamentId, 'players', String(p.idPlayer))
+      batch.set(ref, {
+        id:          String(p.idPlayer),
+        name:        p.strPlayer       || '',
+        position:    p.strPosition     || null,
+        nationality: p.strNationality  || null,
+        teamId:      String(team.idTeam),
+        teamName:    team.strTeam      || '',
+        teamBadge:   team.strBadge     || null,
       })
       count++
-
-      if (count === 490) {
-        await batch.commit()
-        batch = writeBatch(db)
-        count = 0
-      }
+      if (count === 490) { await batch.commit(); batch = writeBatch(db); count = 0 }
     }
-
     if (count > 0) await batch.commit()
   }
 }
 
-const importMatches = async (tournamentId, competitionId) => {
-  const data = await getCompetitionMatches(competitionId)
-  const matches = data.matches || []
+const mapStatus = (s) => {
+  if (!s) return 'scheduled'
+  const lower = s.toLowerCase()
+  if (lower.includes('not started') || lower.includes('ns'))  return 'scheduled'
+  if (lower.includes('live') || lower.includes('progress'))   return 'live'
+  if (lower.includes('finished') || lower.includes('ft'))     return 'finished'
+  if (lower.includes('postponed') || lower.includes('ppd'))   return 'postponed'
+  return 'scheduled'
+}
+
+const importMatches = async (tournamentId, season) => {
+  let matchesData
+  try { matchesData = await getSeasonMatches(tournamentId, season) } catch { return }
+  const events = matchesData.events || []
+  if (events.length === 0) return
 
   let batch = writeBatch(db)
   let count = 0
 
-  for (const match of matches) {
-    const matchRef = doc(
-      db,
-      'tournaments',
-      tournamentId,
-      'matches',
-      String(match.id)
-    )
-    batch.set(matchRef, {
-      id: String(match.id),
-      utcDate: match.utcDate,
-      status: match.status,
-      matchday: match.matchday || null,
-      stage: match.stage || null,
-      group: match.group || null,
-      homeTeam: {
-        id: String(match.homeTeam.id),
-        name: match.homeTeam.name,
-        crest: match.homeTeam.crest || null,
-      },
-      awayTeam: {
-        id: String(match.awayTeam.id),
-        name: match.awayTeam.name,
-        crest: match.awayTeam.crest || null,
-      },
+  for (const e of events) {
+    const ref = doc(db, 'tournaments', tournamentId, 'matches', String(e.idEvent))
+    batch.set(ref, {
+      id:       String(e.idEvent),
+      date:     e.dateEvent || null,
+      time:     e.strTime   || null,
+      status:   mapStatus(e.strStatus),
+      round:    e.intRound  ? Number(e.intRound)  : null,
+      homeTeam: { id: String(e.idHomeTeam || ''), name: e.strHomeTeam || '' },
+      awayTeam: { id: String(e.idAwayTeam || ''), name: e.strAwayTeam || '' },
       score: {
-        home: match.score?.fullTime?.home ?? null,
-        away: match.score?.fullTime?.away ?? null,
+        home: e.intHomeScore != null ? Number(e.intHomeScore) : null,
+        away: e.intAwayScore != null ? Number(e.intAwayScore) : null,
       },
       locked: false,
     })
     count++
-
-    if (count === 490) {
-      await batch.commit()
-      batch = writeBatch(db)
-      count = 0
-    }
+    if (count === 490) { await batch.commit(); batch = writeBatch(db); count = 0 }
   }
-
   if (count > 0) await batch.commit()
 }
 
