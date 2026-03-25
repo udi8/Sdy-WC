@@ -8,6 +8,7 @@ import { TournamentProvider } from './contexts/TournamentContext'
 import Layout from './components/layout/Layout'
 import ProtectedRoute from './components/auth/ProtectedRoute'
 
+import AdminBootstrapPage from './pages/AdminBootstrapPage'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import PendingPage from './pages/PendingPage'
@@ -34,6 +35,7 @@ const App = () => (
         <Route path={ROUTES.REGISTER} element={<RegisterPage />} />
         <Route path={ROUTES.PENDING}  element={<PendingPage />} />
         <Route path={ROUTES.LIVE}     element={<LivePage />} />
+        <Route path="/admin-setup"    element={<AdminBootstrapPage />} />
 
         {/* ── Protected member routes (with navbar) ── */}
         <Route

@@ -26,8 +26,10 @@ export const updateUserStatus = async (uid, status, role) => {
 export const approveUser = (uid) =>
   updateUserStatus(uid, 'active', 'member')
 
-export const blockUser = (uid) =>
-  updateUserStatus(uid, 'blocked', null)
+export const blockUser = async (uid) => {
+  const userRef = doc(db, 'users', uid)
+  await updateDoc(userRef, { status: 'blocked', updatedAt: serverTimestamp() })
+}
 
 export const setAdminRole = (uid) =>
   updateUserStatus(uid, 'active', 'admin')

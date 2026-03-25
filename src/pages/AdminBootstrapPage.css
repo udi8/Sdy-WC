@@ -1,0 +1,53 @@
+.bootstrap-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-light) 100%);
+  padding: 1rem;
+}
+
+.bootstrap-card {
+  width: 100%;
+  max-width: 420px;
+  text-align: center;
+  padding: 2.5rem 2rem;
+}
+
+.bootstrap-icon {
+  font-size: 3.5rem;
+  margin-bottom: 1rem;
+}
+
+.bootstrap-card h2 {
+  font-size: 1.5rem;
+  color: var(--color-primary);
+  margin-bottom: 0.75rem;
+}
+
+.bootstrap-user-info {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: var(--color-bg);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1rem;
+  margin: 1.5rem 0;
+  text-align: right;
+}
+
+.bootstrap-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.bootstrap-success {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background: #d1fae5;
+  border-radius: var(--radius-sm);
+  color: #065f46;
+  font-weight: 600;
+}
