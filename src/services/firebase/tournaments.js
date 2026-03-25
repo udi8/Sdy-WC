@@ -5,6 +5,7 @@ import {
   setDoc,
   deleteDoc,
   updateDoc,
+  arrayUnion,
   serverTimestamp,
   writeBatch,
 } from 'firebase/firestore'
@@ -15,41 +16,35 @@ import {
   getSeasonMatches,
 } from '../api/sportsDb'
 
-// TheSportsDB encodes qualifying rounds with round numbers > 200 (e.g. 400).
-// Main tournament phases (group stage, knockouts) use round ≤ 200.
 const MAX_ROUND = 200
+const TOTAL_PLAYER_CHUNKS = 5
 
-// For these tournaments the participant list is fixed before any match is played.
-// lookup_all_teams returns the correct roster, so we merge it in to fill gaps
-// when the events feed is truncated by the free tier.
 const ROSTER_BASED = new Set(['4429', '4421', '4422', '4423', '4415'])
 
 /**
- * Import a tournament — saves matches + teams only (no players).
- * Use importTournamentPlayers() separately to import players in two halves.
+ * Import tournament matches + teams only (no players).
+ * Players are imported separately via importTournamentPlayers().
  */
 export const importTournament = async (league, season, fromDate = null) => {
   const tournamentId = String(league.idLeague)
-  if (!tournamentId || tournamentId === 'undefined') {
-    throw new Error('League ID is missing')
-  }
+  if (!tournamentId || tournamentId === 'undefined') throw new Error('League ID is missing')
   const name = league.strLeague || league.strLeagueAlternate || '—'
 
   await setDoc(doc(db, 'tournaments', tournamentId), {
     id: tournamentId,
     name,
     season,
-    fromDate: fromDate || null,
-    emblem: league.strBadge || league.strLogo || null,
-    area:   league.strCountry || null,
-    sport:  league.strSport   || 'Soccer',
-    status: 'setup',
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
+    fromDate:      fromDate || null,
+    emblem:        league.strBadge || league.strLogo || null,
+    area:          league.strCountry || null,
+    sport:         league.strSport   || 'Soccer',
+    status:        'setup',
+    playerChunks:  [],   // which of the 5 player-import chunks are done
+    createdAt:     serverTimestamp(),
+    updatedAt:     serverTimestamp(),
   })
 
   const teams = await importMatches(tournamentId, season)
-
   if (ROSTER_BASED.has(tournamentId)) {
     await mergeRosterTeams(tournamentId, teams)
   }
@@ -58,12 +53,14 @@ export const importTournament = async (league, season, fromDate = null) => {
 }
 
 /**
- * Import players for a tournament in two halves to avoid API rate limits.
- * @param {string} tournamentId
- * @param {'AL' | 'MZ'} half  — 'AL' = teams A–L, 'MZ' = teams M–Z
+ * Import players for one chunk (1–5) of the tournament's teams.
+ * Teams are sorted alphabetically and split into TOTAL_PLAYER_CHUNKS equal parts.
+ * On success, marks the chunk as done in the tournament doc (playerChunks array).
+ *
+ * @returns {number} count of teams processed
  */
-export const importTournamentPlayers = async (tournamentId, half) => {
-  // Read teams from existing matches subcollection
+export const importTournamentPlayers = async (tournamentId, chunkNum) => {
+  // 1. Read teams from matches
   const snap = await getDocs(collection(db, 'tournaments', tournamentId, 'matches'))
   const teamsMap = new Map()
   for (const d of snap.docs) {
@@ -71,29 +68,34 @@ export const importTournamentPlayers = async (tournamentId, half) => {
     if (m.homeTeam?.id && m.homeTeam?.name) teamsMap.set(m.homeTeam.id, m.homeTeam)
     if (m.awayTeam?.id && m.awayTeam?.name) teamsMap.set(m.awayTeam.id, m.awayTeam)
   }
-  // Also supplement from roster for roster-based tournaments
   if (ROSTER_BASED.has(tournamentId)) {
     await mergeRosterTeams(tournamentId, teamsMap)
   }
 
-  const isFirstHalf = (name) => {
-    const ch = name.trim()[0]?.toUpperCase() || 'A'
-    return ch <= 'L'
-  }
+  // 2. Sort teams alphabetically, take this chunk's slice
+  const sorted = Array.from(teamsMap.values()).sort((a, b) =>
+    a.name.localeCompare(b.name)
+  )
+  const total = sorted.length
+  const size  = Math.ceil(total / TOTAL_PLAYER_CHUNKS)
+  const from  = (chunkNum - 1) * size
+  const slice = sorted.slice(from, from + size)
 
-  const filtered = new Map(
-    [...teamsMap.entries()].filter(([, t]) =>
-      half === 'AL' ? isFirstHalf(t.name) : !isFirstHalf(t.name)
-    )
+  // 3. Fetch & save players for this slice
+  await savePlayersForTeams(
+    tournamentId,
+    new Map(slice.map((t) => [t.id, t]))
   )
 
-  await savePlayersForTeams(tournamentId, filtered)
-  return filtered.size
+  // 4. Mark chunk as done in the tournament doc
+  await updateDoc(doc(db, 'tournaments', tournamentId), {
+    playerChunks: arrayUnion(chunkNum),
+    updatedAt: serverTimestamp(),
+  })
+
+  return slice.length
 }
 
-/**
- * Delete a tournament and all its subcollection data (matches + players).
- */
 export const deleteTournament = async (tournamentId) => {
   const deleteSubcollection = async (subcol) => {
     const snap = await getDocs(collection(db, 'tournaments', tournamentId, subcol))
@@ -112,6 +114,8 @@ export const deleteTournament = async (tournamentId) => {
   await deleteSubcollection('players')
   await deleteDoc(doc(db, 'tournaments', tournamentId))
 }
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const mapStatus = (s) => {
   if (!s) return 'scheduled'
@@ -153,7 +157,7 @@ const importMatches = async (tournamentId, season) => {
   let count = 0
 
   for (const e of events) {
-    const ref = doc(db, 'tournaments', tournamentId, 'matches', String(e.idEvent))
+    const ref  = doc(db, 'tournaments', tournamentId, 'matches', String(e.idEvent))
     const home = { id: String(e.idHomeTeam || ''), name: e.strHomeTeam || '' }
     const away = { id: String(e.idAwayTeam || ''), name: e.strAwayTeam || '' }
 
@@ -162,10 +166,10 @@ const importMatches = async (tournamentId, season) => {
 
     batch.set(ref, {
       id: String(e.idEvent),
-      date: e.dateEvent || null,
-      time: e.strTime   || null,
-      status: mapStatus(e.strStatus),
-      round:  e.intRound ? Number(e.intRound) : null,
+      date:     e.dateEvent || null,
+      time:     e.strTime   || null,
+      status:   mapStatus(e.strStatus),
+      round:    e.intRound ? Number(e.intRound) : null,
       homeTeam: home,
       awayTeam: away,
       score: {
@@ -224,12 +228,12 @@ const savePlayersForTeams = async (tournamentId, teamsMap) => {
 
 export const activateTournament = (tournamentId) =>
   updateDoc(doc(db, 'tournaments', tournamentId), {
-    status: 'active',
-    updatedAt: serverTimestamp(),
+    status: 'active', updatedAt: serverTimestamp(),
   })
 
 export const deactivateTournament = (tournamentId) =>
   updateDoc(doc(db, 'tournaments', tournamentId), {
-    status: 'finished',
-    updatedAt: serverTimestamp(),
+    status: 'finished', updatedAt: serverTimestamp(),
   })
+
+export { TOTAL_PLAYER_CHUNKS }

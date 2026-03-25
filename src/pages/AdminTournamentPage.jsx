@@ -3,7 +3,7 @@ import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
 import { db } from '../services/firebase/config'
 import { getLeague } from '../services/api/sportsDb'
 import { POPULAR_LEAGUES } from '../data/leagues'
-import { importTournament, importTournamentPlayers, activateTournament, deactivateTournament, deleteTournament } from '../services/firebase/tournaments'
+import { importTournament, importTournamentPlayers, activateTournament, deactivateTournament, deleteTournament, TOTAL_PLAYER_CHUNKS } from '../services/firebase/tournaments'
 import { toast } from 'react-toastify'
 import './AdminTournamentPage.css'
 
@@ -113,12 +113,12 @@ const AdminTournamentPage = () => {
     }
   }
 
-  const handleImportPlayers = async (t, half) => {
-    const key = `${t.id}-${half}`
+  const handleImportPlayers = async (t, chunkNum) => {
+    const key = `${t.id}-${chunkNum}`
     setImportingPlayers(key)
     try {
-      const count = await importTournamentPlayers(t.id, half)
-      toast.success(`✅ יובאו שחקנים (${half === 'AL' ? 'א–L' : 'M–ת'}): ${count} קבוצות`)
+      const count = await importTournamentPlayers(t.id, chunkNum)
+      toast.success(`✅ ייבוא ${chunkNum}/${TOTAL_PLAYER_CHUNKS} הושלם (${count} קבוצות)`)
     } catch (err) {
       toast.error('שגיאה בייבוא שחקנים: ' + err.message)
     } finally {
@@ -287,22 +287,21 @@ const AdminTournamentPage = () => {
                   {t.status === 'active' && (
                     <button className="btn btn-outline" onClick={() => handleDeactivate(t)}>⏹️ סיים</button>
                   )}
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => handleImportPlayers(t, 'AL')}
-                    disabled={!!importingPlayers}
-                    title="ייבא שחקנים לקבוצות A–L"
-                  >
-                    {importingPlayers === `${t.id}-AL` ? '⏳' : '👤 A–L'}
-                  </button>
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => handleImportPlayers(t, 'MZ')}
-                    disabled={!!importingPlayers}
-                    title="ייבא שחקנים לקבוצות M–Z"
-                  >
-                    {importingPlayers === `${t.id}-MZ` ? '⏳' : '👤 M–Z'}
-                  </button>
+                  {Array.from({ length: TOTAL_PLAYER_CHUNKS }, (_, i) => i + 1).map((n) => {
+                    const done = (t.playerChunks || []).includes(n)
+                    const busy = importingPlayers === `${t.id}-${n}`
+                    return (
+                      <button
+                        key={n}
+                        className={`btn ${done ? 'btn-ghost' : 'btn-secondary'}`}
+                        onClick={() => !done && handleImportPlayers(t, n)}
+                        disabled={!!importingPlayers || done}
+                        title={`ייבא שחקנים — קבוצה ${n}/${TOTAL_PLAYER_CHUNKS}`}
+                      >
+                        {busy ? '⏳' : done ? `✅${n}` : `👤${n}`}
+                      </button>
+                    )
+                  })}
                   <button
                     className="btn btn-danger"
                     onClick={() => handleDelete(t)}
