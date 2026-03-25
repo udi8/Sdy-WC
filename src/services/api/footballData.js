@@ -1,11 +1,21 @@
-// football-data.org — free tier, used on non-match days
+// football-data.org — free tier
+// Free tier only allows localhost — use corsproxy.io for production admin calls
 const BASE_URL = 'https://api.football-data.org/v4'
 const API_KEY = import.meta.env.VITE_FOOTBALL_DATA_API_KEY
 
-const headers = { 'X-Auth-Token': API_KEY }
+const isLocalhost = typeof window !== 'undefined' &&
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
 
 const fetchFD = async (path) => {
-  const res = await fetch(`${BASE_URL}${path}`, { headers })
+  const targetUrl = `${BASE_URL}${path}`
+  // Use CORS proxy in production (admin-only calls)
+  const url = isLocalhost
+    ? targetUrl
+    : `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`
+
+  const res = await fetch(url, {
+    headers: { 'X-Auth-Token': API_KEY },
+  })
   if (!res.ok) throw new Error(`football-data.org error: ${res.status}`)
   return res.json()
 }
