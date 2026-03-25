@@ -3,7 +3,7 @@ import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
 import { db } from '../services/firebase/config'
 import { getLeague } from '../services/api/sportsDb'
 import { POPULAR_LEAGUES } from '../data/leagues'
-import { importTournament, activateTournament, deactivateTournament } from '../services/firebase/tournaments'
+import { importTournament, activateTournament, deactivateTournament, deleteTournament } from '../services/firebase/tournaments'
 import { toast } from 'react-toastify'
 import './AdminTournamentPage.css'
 
@@ -18,7 +18,9 @@ const AdminTournamentPage = () => {
   const [customResult, setCustomResult] = useState(null)
   const [fetchingCustom, setFetchingCustom] = useState(false)
   const [seasons, setSeasons]         = useState({})
+  const [fromDates, setFromDates]     = useState({})
   const [importingId, setImportingId] = useState(null)
+  const [deletingId, setDeletingId]   = useState(null)
   const [importProgress, setImportProgress] = useState('')
   const [tournaments, setTournaments] = useState([])
 
@@ -39,8 +41,10 @@ const AdminTournamentPage = () => {
         l.sport.toLowerCase().includes(term)
       )
 
-  const getSeason = (id) => seasons[id] ?? defaultSeason()
-  const setSeason = (id, val) => setSeasons((p) => ({ ...p, [id]: val }))
+  const getSeason   = (id) => seasons[id]   ?? defaultSeason()
+  const setSeason   = (id, val) => setSeasons((p)   => ({ ...p, [id]: val }))
+  const getFromDate = (id) => fromDates[id] ?? ''
+  const setFromDate = (id, val) => setFromDates((p) => ({ ...p, [id]: val }))
 
   // Look up a custom league by TheSportsDB ID
   const handleCustomLookup = async () => {
@@ -68,12 +72,14 @@ const AdminTournamentPage = () => {
   }
 
   const handleImport = async (league) => {
-    const season = getSeason(league.id)
+    const season   = getSeason(league.id)
+    const fromDate = getFromDate(league.id).trim() || null
     if (!season.trim()) { toast.error('יש להזין עונה'); return }
-    if (!window.confirm(`לייבא "${league.name}" עונת ${season}?`)) return
+    const note = fromDate ? ` (מתאריך ${fromDate})` : ''
+    if (!window.confirm(`לייבא "${league.name}" עונת ${season}${note}?`)) return
 
     setImportingId(league.id)
-    setImportProgress(`מייבא "${league.name}" עונת ${season}...`)
+    setImportProgress(`מייבא "${league.name}" עונת ${season}${note}...`)
     try {
       // Fetch full details if we only have static data (no badge etc.)
       let fullLeague = league._full
@@ -91,7 +97,7 @@ const AdminTournamentPage = () => {
           }
         }
       }
-      await importTournament(fullLeague, season)
+      await importTournament(fullLeague, season, fromDate)
       setImportProgress('')
       setCustomResult(null)
       setCustomId('')
@@ -102,6 +108,19 @@ const AdminTournamentPage = () => {
       setImportProgress('')
     } finally {
       setImportingId(null)
+    }
+  }
+
+  const handleDelete = async (t) => {
+    if (!window.confirm(`למחוק את "${t.name}" ואת כל נתוני המשחקים/שחקנים שלו? פעולה זו בלתי הפיכה.`)) return
+    setDeletingId(t.id)
+    try {
+      await deleteTournament(t.id)
+      toast.success(`"${t.name}" נמחק.`)
+    } catch (err) {
+      toast.error('שגיאה במחיקה: ' + err.message)
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -138,6 +157,14 @@ const AdminTournamentPage = () => {
           value={getSeason(league.id)}
           onChange={(e) => setSeason(league.id, e.target.value)}
           placeholder="עונה"
+          disabled={!!importingId}
+        />
+        <input
+          type="date"
+          className="form-control season-input"
+          value={getFromDate(league.id)}
+          onChange={(e) => setFromDate(league.id, e.target.value)}
+          title="התחל מתאריך — מסנן משחקי בחינות וסיבובים מוקדמים"
           disabled={!!importingId}
         />
         <button
@@ -245,6 +272,14 @@ const AdminTournamentPage = () => {
                   {t.status === 'active' && (
                     <button className="btn btn-outline" onClick={() => handleDeactivate(t)}>⏹️ סיים</button>
                   )}
+                  <button
+                    className="btn btn-danger"
+                    onClick={() => handleDelete(t)}
+                    disabled={!!deletingId}
+                    title="מחק טורניר ואת כל הנתונים שלו"
+                  >
+                    {deletingId === t.id ? '⏳' : '🗑️'}
+                  </button>
                 </div>
               </div>
             )

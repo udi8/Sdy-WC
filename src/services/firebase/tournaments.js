@@ -1,24 +1,27 @@
 import {
   collection,
   doc,
+  getDoc,
+  getDocs,
   setDoc,
+  deleteDoc,
   updateDoc,
   serverTimestamp,
   writeBatch,
 } from 'firebase/firestore'
 import { db } from './config'
 import {
-  getLeagueTeams,
   getTeamPlayers,
   getSeasonMatches,
 } from '../api/sportsDb'
 
 /**
  * Import a tournament from TheSportsDB into Firebase.
- * @param {object} league  - TheSportsDB league object (idLeague, strLeague, ...)
- * @param {string} season  - Season string e.g. "2025-2026" or "2026"
+ * @param {object} league    - TheSportsDB league object (idLeague, strLeague, ...)
+ * @param {string} season    - Season string e.g. "2025-2026" or "2026"
+ * @param {string} [fromDate] - ISO date "YYYY-MM-DD" — skip matches before this date
  */
-export const importTournament = async (league, season) => {
+export const importTournament = async (league, season, fromDate = null) => {
   const tournamentId = String(league.idLeague)
   if (!tournamentId || tournamentId === 'undefined') {
     throw new Error('League ID is missing')
@@ -32,6 +35,7 @@ export const importTournament = async (league, season) => {
     id: tournamentId,
     name,
     season,
+    fromDate: fromDate || null,
     emblem: league.strBadge || league.strLogo || null,
     area:   league.strCountry || null,
     sport:  league.strSport   || 'Soccer',
@@ -41,12 +45,34 @@ export const importTournament = async (league, season) => {
   })
 
   // 2. Fetch & save matches first (source of truth for teams)
-  const teams = await importMatches(tournamentId, season)
+  const teams = await importMatches(tournamentId, season, fromDate)
 
   // 3. Save teams derived from matches + their players
   await importPlayers(tournamentId, teams)
 
   return tournamentId
+}
+
+/**
+ * Delete a tournament and all its subcollection data (matches + players).
+ */
+export const deleteTournament = async (tournamentId) => {
+  const deleteSubcollection = async (subcol) => {
+    const snap = await getDocs(collection(db, 'tournaments', tournamentId, subcol))
+    if (snap.empty) return
+    let batch = writeBatch(db)
+    let count = 0
+    for (const d of snap.docs) {
+      batch.delete(d.ref)
+      count++
+      if (count === 490) { await batch.commit(); batch = writeBatch(db); count = 0 }
+    }
+    if (count > 0) await batch.commit()
+  }
+
+  await deleteSubcollection('matches')
+  await deleteSubcollection('players')
+  await deleteDoc(doc(db, 'tournaments', tournamentId))
 }
 
 const mapStatus = (s) => {
@@ -60,10 +86,14 @@ const mapStatus = (s) => {
 }
 
 // Import matches and return unique teams derived from them
-const importMatches = async (tournamentId, season) => {
+const importMatches = async (tournamentId, season, fromDate = null) => {
   let matchesData
   try { matchesData = await getSeasonMatches(tournamentId, season) } catch { return new Map() }
-  const events = matchesData?.events || []
+  const allEvents = matchesData?.events || []
+  // Filter out matches before fromDate (skip qualifying rounds)
+  const events = fromDate
+    ? allEvents.filter((e) => !e.dateEvent || e.dateEvent >= fromDate)
+    : allEvents
   if (events.length === 0) return new Map()
 
   const teamsMap = new Map()

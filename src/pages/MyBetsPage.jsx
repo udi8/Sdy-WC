@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useTournament } from '../contexts/TournamentContext'
 import {
@@ -11,6 +11,84 @@ import './MyBetsPage.css'
 const EMPTY = {
   champion: '', second: '', third: '', fourth: '',
   topScorer: '', yellowCards: '', redCards: '',
+}
+
+// Searchable dropdown component
+const SearchSelect = ({ value, onChange, options, placeholder, disabled }) => {
+  const [open, setOpen]   = useState(false)
+  const [query, setQuery] = useState('')
+  const containerRef      = useRef(null)
+
+  const selected = options.find((o) => o.id === value)
+
+  const filtered = query.trim()
+    ? options.filter((o) => o.label.toLowerCase().includes(query.toLowerCase()))
+    : options
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return
+    const handle = (e) => {
+      if (!containerRef.current?.contains(e.target)) {
+        setOpen(false)
+        setQuery('')
+      }
+    }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [open])
+
+  const select = (id) => {
+    onChange(id)
+    setOpen(false)
+    setQuery('')
+  }
+
+  return (
+    <div className={`ss-container${open ? ' ss-open' : ''}`} ref={containerRef}>
+      <button
+        type="button"
+        className={`ss-toggle form-control${disabled ? ' ss-disabled' : ''}`}
+        onClick={() => !disabled && setOpen((o) => !o)}
+        disabled={disabled}
+      >
+        <span className={selected ? '' : 'ss-placeholder'}>
+          {selected ? selected.label : placeholder}
+        </span>
+        <span className="ss-arrow">{open ? '▲' : '▼'}</span>
+      </button>
+
+      {open && (
+        <div className="ss-dropdown">
+          <input
+            autoFocus
+            className="ss-search"
+            placeholder="חיפוש..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Escape' && (setOpen(false), setQuery(''))}
+          />
+          <ul className="ss-list">
+            <li className="ss-item ss-empty-item" onMouseDown={() => select('')}>
+              — {placeholder} —
+            </li>
+            {filtered.length === 0 && (
+              <li className="ss-item ss-no-results">לא נמצאו תוצאות</li>
+            )}
+            {filtered.map((o) => (
+              <li
+                key={o.id}
+                className={`ss-item${o.id === value ? ' ss-selected' : ''}`}
+                onMouseDown={() => select(o.id)}
+              >
+                {o.label}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
 }
 
 const MyBetsPage = () => {
@@ -85,14 +163,22 @@ const MyBetsPage = () => {
       </div>
     )
 
+  const teamOptions   = teams.map((t)   => ({ id: t.id, label: t.name }))
+  const playerOptions = players.map((p) => ({
+    id: p.id,
+    label: p.name + (p.teamName ? ` · ${p.teamName}` : ''),
+  }))
+
   const TeamSelect = ({ field, label }) => (
     <div className="bet-field">
       <label className="bet-label">{label}</label>
-      <select className="form-control" value={form[field]}
-        onChange={(e) => set(field, e.target.value)} disabled={locked}>
-        <option value="">— בחר קבוצה —</option>
-        {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-      </select>
+      <SearchSelect
+        value={form[field]}
+        onChange={(v) => set(field, v)}
+        options={teamOptions}
+        placeholder="בחר קבוצה"
+        disabled={locked}
+      />
     </div>
   )
 
@@ -123,15 +209,13 @@ const MyBetsPage = () => {
 
           <div className="bet-field">
             <label className="bet-label">⚽ מלך שערים</label>
-            <select className="form-control" value={form.topScorer}
-              onChange={(e) => set('topScorer', e.target.value)} disabled={locked}>
-              <option value="">— בחר שחקן —</option>
-              {players.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}{p.teamName ? ` · ${p.teamName}` : ''}
-                </option>
-              ))}
-            </select>
+            <SearchSelect
+              value={form.topScorer}
+              onChange={(v) => set('topScorer', v)}
+              options={playerOptions}
+              placeholder="בחר שחקן"
+              disabled={locked}
+            />
           </div>
 
           <div className="bet-field">
