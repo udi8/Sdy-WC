@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
 import { db } from '../services/firebase/config'
-import { searchLeagues } from '../services/api/sportsDb'
+import { getAllLeagues } from '../services/api/sportsDb'
 import { importTournament, activateTournament, deactivateTournament } from '../services/firebase/tournaments'
 import { toast } from 'react-toastify'
 import './AdminTournamentPage.css'
@@ -12,16 +12,24 @@ const defaultSeason = () => {
   return new Date().getMonth() >= 7 ? `${y}-${y + 1}` : `${y - 1}-${y}`
 }
 
+const match = (league, term) => {
+  const t = term.toLowerCase()
+  return (
+    league.strLeague?.toLowerCase().includes(t) ||
+    league.strLeagueAlternate?.toLowerCase().includes(t) ||
+    league.strCountry?.toLowerCase().includes(t) ||
+    league.strSport?.toLowerCase().includes(t)
+  )
+}
+
 const AdminTournamentPage = () => {
   const [searchTerm, setSearchTerm] = useState('')
-  const [leagues, setLeagues] = useState([])
-  // per-league season override: { [idLeague]: seasonString }
+  const [allLeagues, setAllLeagues] = useState([])
+  const [loadingAll, setLoadingAll] = useState(false)
   const [leagueSeasons, setLeagueSeasons] = useState({})
-  const [searching, setSearching] = useState(false)
   const [importingId, setImportingId] = useState(null)
   const [importProgress, setImportProgress] = useState('')
   const [tournaments, setTournaments] = useState([])
-  const debounceRef = useRef(null)
 
   useEffect(() => {
     const q = query(collection(db, 'tournaments'), orderBy('createdAt', 'desc'))
@@ -31,23 +39,25 @@ const AdminTournamentPage = () => {
     return unsub
   }, [])
 
-  // Debounced live search
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    if (!searchTerm.trim()) { setLeagues([]); return }
-    debounceRef.current = setTimeout(async () => {
-      setSearching(true)
-      try {
-        const data = await searchLeagues(searchTerm.trim())
-        setLeagues(data.leagues || [])
-      } catch (err) {
-        toast.error('שגיאה בחיפוש: ' + err.message)
-        setLeagues([])
-      } finally {
-        setSearching(false)
-      }
-    }, 500)
-  }, [searchTerm])
+  // Load all leagues once on first focus
+  const loadAll = async () => {
+    if (allLeagues.length > 0 || loadingAll) return
+    setLoadingAll(true)
+    try {
+      const data = await getAllLeagues()
+      setAllLeagues(data.leagues || [])
+    } catch (err) {
+      toast.error('שגיאה בטעינת ליגות: ' + err.message)
+    } finally {
+      setLoadingAll(false)
+    }
+  }
+
+  const filtered = searchTerm.trim().length >= 2
+    ? allLeagues.filter((l) => match(l, searchTerm.trim())).slice(0, 50)
+    : []
+
+  const leagues = filtered
 
   const getSeason = (id) => leagueSeasons[id] ?? defaultSeason()
 
@@ -112,11 +122,18 @@ const AdminTournamentPage = () => {
           placeholder="למשל: Champions League, World Cup, Premier League, ליגת העל..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
+          onFocus={loadAll}
           disabled={!!importingId}
           autoFocus
         />
 
-        {searching && <p className="text-muted mt-1">מחפש...</p>}
+        {loadingAll && <p className="text-muted mt-1">טוען רשימת ליגות...</p>}
+        {!loadingAll && searchTerm.trim().length >= 2 && leagues.length === 0 && (
+          <p className="text-muted mt-1">לא נמצאו תוצאות עבור "{searchTerm}"</p>
+        )}
+        {!loadingAll && searchTerm.trim().length < 2 && searchTerm.trim().length > 0 && (
+          <p className="text-muted mt-1">המשך להקליד...</p>
+        )}
 
         {leagues.length > 0 && (
           <ul className="competition-list">
@@ -164,10 +181,6 @@ const AdminTournamentPage = () => {
               )
             })}
           </ul>
-        )}
-
-        {searchTerm && !searching && leagues.length === 0 && (
-          <p className="text-muted mt-1">לא נמצאו תוצאות עבור "{searchTerm}"</p>
         )}
 
         {importProgress && (
