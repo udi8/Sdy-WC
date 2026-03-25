@@ -10,6 +10,7 @@ import {
 } from 'firebase/firestore'
 import { db } from './config'
 import {
+  getLeagueTeams,
   getTeamPlayers,
   getSeasonMatches,
 } from '../api/sportsDb'
@@ -17,6 +18,11 @@ import {
 // TheSportsDB encodes qualifying rounds with round numbers > 200 (e.g. 400).
 // Main tournament phases (group stage, knockouts) use round ≤ 200.
 const MAX_ROUND = 200
+
+// For these tournaments the participant list is fixed before any match is played
+// (national team competitions). lookup_all_teams returns the correct roster,
+// so we merge it in to fill gaps when the events feed is truncated by the free tier.
+const ROSTER_BASED = new Set(['4429', '4421', '4422', '4423', '4415'])
 
 /**
  * Import a tournament from TheSportsDB into Firebase.
@@ -52,7 +58,13 @@ export const importTournament = async (league, season, fromDate = null) => {
   //    Qualifying rounds (round > MAX_ROUND) are filtered out automatically.
   const teams = await importMatches(tournamentId, season)
 
-  // 3. Save players for each team
+  // 3. For national-team tournaments (WC, Euros, Copa…) supplement with the
+  //    league roster endpoint — free-tier events feed may be truncated.
+  if (ROSTER_BASED.has(tournamentId)) {
+    await mergeRosterTeams(tournamentId, teams)
+  }
+
+  // 4. Save players for each team
   await importPlayers(tournamentId, teams)
 
   return tournamentId
@@ -88,6 +100,23 @@ const mapStatus = (s) => {
   if (lower.includes('finished') || lower.includes('ft'))     return 'finished'
   if (lower.includes('postponed') || lower.includes('ppd'))   return 'postponed'
   return 'scheduled'
+}
+
+// Fetch teams from the league roster endpoint and add any missing ones to teamsMap.
+// Used for national-team competitions where lookup_all_teams is reliable.
+const mergeRosterTeams = async (tournamentId, teamsMap) => {
+  let data
+  try { data = await getLeagueTeams(tournamentId) } catch { return }
+  for (const t of (data?.teams || [])) {
+    if (!t.idTeam || !t.strTeam) continue
+    if (!teamsMap.has(String(t.idTeam))) {
+      teamsMap.set(String(t.idTeam), {
+        id:    String(t.idTeam),
+        name:  t.strTeam,
+        badge: t.strBadge || null,
+      })
+    }
+  }
 }
 
 // Import ALL matches for the season and return unique teams.
