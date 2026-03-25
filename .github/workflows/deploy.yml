@@ -17,10 +17,6 @@ jobs:
 
       - run: npm ci
 
-      - name: Install Functions dependencies
-        run: npm ci
-        working-directory: functions
-
       - name: Build
         run: npm run build
         env:
@@ -30,10 +26,8 @@ jobs:
           VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
           VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
-          VITE_FOOTBALL_DATA_API_KEY: ${{ secrets.VITE_FOOTBALL_DATA_API_KEY }}
-          VITE_API_FOOTBALL_KEY: ${{ secrets.VITE_API_FOOTBALL_KEY }}
 
-      - name: Set Football API secret in Firebase
+      - name: Deploy to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
@@ -41,13 +35,3 @@ jobs:
           projectId: sdy-wc
           channelId: live
           entryPoint: .
-
-      - name: Deploy Functions
-        run: |
-          npm install -g firebase-tools
-          echo "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}" > /tmp/sa.json
-          export GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa.json
-          firebase functions:secrets:set FOOTBALL_DATA_API_KEY --data-file /dev/stdin <<< "${{ secrets.VITE_FOOTBALL_DATA_API_KEY }}" --project sdy-wc --non-interactive || true
-          firebase deploy --only functions --project sdy-wc --non-interactive
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: /tmp/sa.json
