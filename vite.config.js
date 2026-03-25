@@ -6,5 +6,5 @@ export default defineConfig({
   plugins: [react()],
   // GitHub Pages: set base to repo name when deploying
   // Change 'kibbutz-sports' to your actual GitHub repo name
-  base: process.env.NODE_ENV === 'production' ? '/kibbutz-sports/' : '/',
+  base: process.env.NODE_ENV === 'production' ? '/Sdy-WC/' : '/',
 })
