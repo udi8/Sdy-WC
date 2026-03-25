@@ -26,12 +26,16 @@ export const saveStaticBet = async (userId, tournamentId, data) => {
 
 // ─── Tournament data helpers ──────────────────────────────────────────────────
 
-// Derive teams from matches — only teams that actually play in this season
-export const getTournamentTeams = async (tournamentId) => {
+// Derive teams from matches.
+// fromDate (optional "YYYY-MM-DD"): include only teams that appear in matches
+// from that date onwards — so if admin sets "2026-03-01", only teams still
+// active in the tournament from that stage appear.
+export const getTournamentTeams = async (tournamentId, fromDate = null) => {
   const snap = await getDocs(collection(db, 'tournaments', tournamentId, 'matches'))
   const map = new Map()
   for (const d of snap.docs) {
     const m = d.data()
+    if (fromDate && m.date && m.date < fromDate) continue
     if (m.homeTeam?.id && m.homeTeam?.name) map.set(m.homeTeam.id, m.homeTeam)
     if (m.awayTeam?.id && m.awayTeam?.name) map.set(m.awayTeam.id, m.awayTeam)
   }

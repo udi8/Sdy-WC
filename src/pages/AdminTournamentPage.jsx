@@ -41,7 +41,8 @@ const AdminTournamentPage = () => {
         l.sport.toLowerCase().includes(term)
       )
 
-  const getSeason   = (id) => seasons[id]   ?? defaultSeason()
+  const leagueSeason = (id) => POPULAR_LEAGUES.find((l) => l.id === id)?.defaultSeason ?? defaultSeason()
+  const getSeason   = (id) => seasons[id]   ?? leagueSeason(id)
   const setSeason   = (id, val) => setSeasons((p)   => ({ ...p, [id]: val }))
   const getFromDate = (id) => fromDates[id] ?? ''
   const setFromDate = (id, val) => setFromDates((p) => ({ ...p, [id]: val }))
@@ -75,7 +76,7 @@ const AdminTournamentPage = () => {
     const season   = getSeason(league.id)
     const fromDate = getFromDate(league.id).trim() || null
     if (!season.trim()) { toast.error('יש להזין עונה'); return }
-    const note = fromDate ? ` (מתאריך ${fromDate})` : ''
+    const note = fromDate ? ` (קבוצות מ-${fromDate})` : ''
     if (!window.confirm(`לייבא "${league.name}" עונת ${season}${note}?`)) return
 
     setImportingId(league.id)
@@ -164,7 +165,7 @@ const AdminTournamentPage = () => {
           className="form-control season-input"
           value={getFromDate(league.id)}
           onChange={(e) => setFromDate(league.id, e.target.value)}
-          title="התחל מתאריך — מסנן משחקי בחינות וסיבובים מוקדמים"
+          title="הצג קבוצות מתאריך — רק קבוצות שיש להן משחק מהתאריך הזה ואילך יופיעו בהימורים"
           disabled={!!importingId}
         />
         <button

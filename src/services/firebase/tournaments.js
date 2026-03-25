@@ -1,7 +1,6 @@
 import {
   collection,
   doc,
-  getDoc,
   getDocs,
   setDoc,
   deleteDoc,
@@ -15,11 +14,16 @@ import {
   getSeasonMatches,
 } from '../api/sportsDb'
 
+// TheSportsDB encodes qualifying rounds with round numbers > 200 (e.g. 400).
+// Main tournament phases (group stage, knockouts) use round ≤ 200.
+const MAX_ROUND = 200
+
 /**
  * Import a tournament from TheSportsDB into Firebase.
  * @param {object} league    - TheSportsDB league object (idLeague, strLeague, ...)
  * @param {string} season    - Season string e.g. "2025-2026" or "2026"
- * @param {string} [fromDate] - ISO date "YYYY-MM-DD" — skip matches before this date
+ * @param {string} [fromDate] - "YYYY-MM-DD" — teams in bets are derived from matches
+ *                              on or after this date (to show only remaining teams)
  */
 export const importTournament = async (league, season, fromDate = null) => {
   const tournamentId = String(league.idLeague)
@@ -35,7 +39,7 @@ export const importTournament = async (league, season, fromDate = null) => {
     id: tournamentId,
     name,
     season,
-    fromDate: fromDate || null,
+    fromDate: fromDate || null,   // used by bets UI to show only remaining teams
     emblem: league.strBadge || league.strLogo || null,
     area:   league.strCountry || null,
     sport:  league.strSport   || 'Soccer',
@@ -44,10 +48,11 @@ export const importTournament = async (league, season, fromDate = null) => {
     updatedAt: serverTimestamp(),
   })
 
-  // 2. Fetch & save matches first (source of truth for teams)
-  const teams = await importMatches(tournamentId, season, fromDate)
+  // 2. Fetch & save matches (source of truth for teams).
+  //    Qualifying rounds (round > MAX_ROUND) are filtered out automatically.
+  const teams = await importMatches(tournamentId, season)
 
-  // 3. Save teams derived from matches + their players
+  // 3. Save players for each team
   await importPlayers(tournamentId, teams)
 
   return tournamentId
@@ -85,15 +90,18 @@ const mapStatus = (s) => {
   return 'scheduled'
 }
 
-// Import matches and return unique teams derived from them
-const importMatches = async (tournamentId, season, fromDate = null) => {
+// Import ALL matches for the season and return unique teams.
+// Qualifying rounds (intRound > MAX_ROUND) are excluded — they are
+// pre-season mini-leagues irrelevant to the main tournament.
+const importMatches = async (tournamentId, season) => {
   let matchesData
   try { matchesData = await getSeasonMatches(tournamentId, season) } catch { return new Map() }
   const allEvents = matchesData?.events || []
-  // Filter out matches before fromDate (skip qualifying rounds)
-  const events = fromDate
-    ? allEvents.filter((e) => !e.dateEvent || e.dateEvent >= fromDate)
-    : allEvents
+  // Exclude qualifying rounds (TheSportsDB encodes them as round > 200, e.g. 400)
+  const events = allEvents.filter((e) => {
+    const r = Number(e.intRound)
+    return !r || r <= MAX_ROUND
+  })
   if (events.length === 0) return new Map()
 
   const teamsMap = new Map()

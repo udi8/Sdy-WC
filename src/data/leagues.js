@@ -2,14 +2,15 @@
 // Soccer — International
 export const POPULAR_LEAGUES = [
   // ─── International ───────────────────────────────────
-  { id: '4429', name: 'FIFA World Cup',               country: 'International', sport: 'Soccer' },
+  // single-year tournaments use defaultSeason (e.g. "2026"), club leagues use "YYYY-YYYY"
+  { id: '4429', name: 'FIFA World Cup',               country: 'International', sport: 'Soccer', defaultSeason: '2026' },
   { id: '4480', name: 'UEFA Champions League',        country: 'Europe',        sport: 'Soccer' },
   { id: '4481', name: 'UEFA Europa League',           country: 'Europe',        sport: 'Soccer' },
   { id: '4882', name: 'UEFA Conference League',       country: 'Europe',        sport: 'Soccer' },
-  { id: '4421', name: 'UEFA European Championship',   country: 'Europe',        sport: 'Soccer' },
-  { id: '4422', name: 'Copa América',                 country: 'South America', sport: 'Soccer' },
-  { id: '4423', name: 'Africa Cup of Nations',        country: 'Africa',        sport: 'Soccer' },
-  { id: '4415', name: 'Copa Libertadores',            country: 'South America', sport: 'Soccer' },
+  { id: '4421', name: 'UEFA European Championship',   country: 'Europe',        sport: 'Soccer', defaultSeason: '2028' },
+  { id: '4422', name: 'Copa América',                 country: 'South America', sport: 'Soccer', defaultSeason: '2028' },
+  { id: '4423', name: 'Africa Cup of Nations',        country: 'Africa',        sport: 'Soccer', defaultSeason: '2027' },
+  { id: '4415', name: 'Copa Libertadores',            country: 'South America', sport: 'Soccer', defaultSeason: '2026' },
   // ─── Israel ──────────────────────────────────────────
   { id: '4355', name: 'Israeli Premier League',       country: 'Israel',        sport: 'Soccer', altName: 'ליגת העל' },
   { id: '4356', name: 'Israeli National League',      country: 'Israel',        sport: 'Soccer', altName: 'ליגה לאומית' },
