@@ -16,9 +16,12 @@ const SPORTS = [
 export const syncAllLeagues = async (onProgress) => {
   let total = 0
 
+  const delay = (ms) => new Promise((r) => setTimeout(r, ms))
+
   for (const sport of SPORTS) {
     onProgress?.(`מייבא ליגות ${sport}...`)
     try {
+      await delay(1500) // avoid 429 rate-limit
       const data = await getLeaguesBySport(sport)
       const leagues = data.leagues || []
       if (leagues.length === 0) continue
