@@ -1,0 +1,38 @@
+.register-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-light) 100%);
+  padding: 1rem;
+}
+
+.register-card {
+  width: 100%;
+  max-width: 420px;
+  text-align: center;
+  padding: 2.5rem 2rem;
+}
+
+.register-icon {
+  font-size: 3.5rem;
+  margin-bottom: 1rem;
+}
+
+.register-card h2 {
+  font-size: 1.5rem;
+  margin-bottom: 0.5rem;
+  color: var(--color-primary);
+}
+
+.register-subtitle {
+  color: var(--color-text-muted);
+  margin-bottom: 2rem;
+  font-size: 0.95rem;
+}
+
+.register-msg {
+  color: var(--color-text-muted);
+  line-height: 1.8;
+  font-size: 1rem;
+}

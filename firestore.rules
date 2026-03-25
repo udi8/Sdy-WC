@@ -1,0 +1,121 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─── Helper functions ────────────────────────────────────
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isActiveUser() {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'active';
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // ─── Users collection ────────────────────────────────────
+    match /users/{uid} {
+      // Users can read/write their own doc (for age registration)
+      allow read: if isOwner(uid) || isAdmin();
+
+      // New user can create their own profile (from Firebase Auth)
+      allow create: if isOwner(uid) &&
+        request.resource.data.role == 'pending' &&
+        request.resource.data.status == 'pending_age';
+
+      // User can only update their own birthYear + status (age step)
+      allow update: if isOwner(uid) &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['birthYear', 'status', 'updatedAt']) ||
+        isAdmin();
+
+      allow delete: if isAdmin();
+    }
+
+    // ─── Tournaments collection ─────────────────────────────
+    match /tournaments/{tournamentId} {
+      // Anyone logged in (active) can read — also public for /live page
+      allow read: if true; // Public read for /live screen
+
+      allow create, update, delete: if isAdmin();
+
+      // Matches subcollection
+      match /matches/{matchId} {
+        allow read: if true; // Public read for /live screen
+        allow write: if isAdmin();
+      }
+
+      // Teams subcollection
+      match /teams/{teamId} {
+        allow read: if isActiveUser() || isAdmin();
+        allow write: if isAdmin();
+      }
+
+      // Players subcollection
+      match /players/{playerId} {
+        allow read: if isActiveUser() || isAdmin();
+        allow write: if isAdmin();
+      }
+
+      // Leaderboard subcollection — public read for /live screen
+      match /leaderboard/{userId} {
+        allow read: if true;
+        allow write: if isAdmin();
+      }
+    }
+
+    // ─── Bets collection ────────────────────────────────────
+    match /bets/{betId} {
+      // User can only read/write their own bets
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+
+      // Can only create/update if:
+      // 1. It's their own bet
+      // 2. The bet is not locked
+      // 3. They are an active user
+      allow create: if isActiveUser() &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.locked != true;
+
+      allow update: if isActiveUser() &&
+        resource.data.userId == request.auth.uid &&
+        resource.data.locked != true &&
+        request.resource.data.locked != true ||
+        isAdmin(); // Admin can override locks in emergency
+
+      allow delete: if isAdmin();
+    }
+
+    // ─── Static bets (tournament-level predictions) ─────────
+    match /staticBets/{betId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+
+      allow create: if isActiveUser() &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.locked != true;
+
+      allow update: if isActiveUser() &&
+        resource.data.userId == request.auth.uid &&
+        resource.data.locked != true &&
+        request.resource.data.locked != true ||
+        isAdmin();
+
+      allow delete: if isAdmin();
+    }
+
+    // ─── System config (API state, poller info) ─────────────
+    match /system/{docId} {
+      allow read: if isActiveUser() || isAdmin();
+      allow write: if isAdmin();
+    }
+  }
+}

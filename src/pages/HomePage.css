@@ -1,0 +1,42 @@
+.home-page {
+  padding-top: 0.5rem;
+}
+
+.home-header {
+  margin-bottom: 1.5rem;
+}
+
+.home-greeting {
+  font-size: 1.75rem;
+  color: var(--color-primary);
+}
+
+.home-tournament-name {
+  font-size: 1.1rem;
+  color: var(--color-text-muted);
+  margin-top: 0.25rem;
+}
+
+.home-no-tournament {
+  text-align: center;
+  padding: 3rem 2rem;
+  font-size: 1.1rem;
+}
+
+.home-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+}
+
+.home-widget h3 {
+  font-size: 1.1rem;
+  margin-bottom: 0.5rem;
+  color: var(--color-primary);
+}
+
+@media (max-width: 768px) {
+  .home-greeting {
+    font-size: 1.4rem;
+  }
+}

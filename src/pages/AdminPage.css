@@ -1,0 +1,43 @@
+.admin-page h2 {
+  margin-bottom: 1.5rem;
+  color: var(--color-primary);
+}
+
+.admin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.admin-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.5rem;
+  padding: 1.75rem 1.25rem;
+  text-decoration: none;
+  color: var(--color-text);
+  transition: box-shadow var(--transition), transform var(--transition);
+}
+
+.admin-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.admin-card span {
+  font-size: 2.5rem;
+}
+
+.admin-card h3 {
+  font-size: 1rem;
+  margin: 0;
+  color: var(--color-primary);
+}
+
+.admin-card p {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  margin: 0;
+}
