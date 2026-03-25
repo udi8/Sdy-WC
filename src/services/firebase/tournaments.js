@@ -166,14 +166,30 @@ const importMatches = async (tournamentId, season) => {
   return teamsMap
 }
 
-// Save players for each team derived from matches
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+// Fetch with retry on 429 (rate limit) — waits 2 s then 4 s then gives up
+const fetchPlayersWithRetry = async (teamId) => {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await getTeamPlayers(teamId)
+    } catch (err) {
+      const is429 = err.message?.includes('429')
+      if (!is429 || attempt === 2) return null
+      await sleep((attempt + 1) * 2000) // 2 s, then 4 s
+    }
+  }
+  return null
+}
+
+// Save players for each team — 400 ms gap between teams to stay under rate limit
 const importPlayers = async (tournamentId, teamsMap) => {
   if (!teamsMap || teamsMap.size === 0) return
 
   for (const [teamId, team] of teamsMap) {
-    let playersData
-    try { playersData = await getTeamPlayers(teamId) } catch { continue }
+    const playersData = await fetchPlayersWithRetry(teamId)
     const players = playersData?.player || []
+    await sleep(400) // stay under free-tier rate limit
     if (players.length === 0) continue
 
     let batch = writeBatch(db)
