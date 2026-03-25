@@ -1,0 +1,35 @@
+name: Import Tournament Data
+
+on:
+  workflow_dispatch:
+    inputs:
+      competition:
+        description: 'Competition code (e.g. WC, CL, PL, SA, PD, FL1, BL1, ELC, PPL, EC)'
+        required: true
+        default: 'WC'
+      season:
+        description: 'Season year (e.g. 2026 for World Cup, 2025 for club leagues 2025-26)'
+        required: true
+        default: '2026'
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Import tournament data to Firestore
+        run: node scripts/import-tournament.mjs
+        env:
+          FOOTBALL_DATA_API_KEY: ${{ secrets.VITE_FOOTBALL_DATA_API_KEY }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_PROJECT_ID: sdy-wc
+          COMPETITION: ${{ github.event.inputs.competition }}
+          SEASON: ${{ github.event.inputs.season }}
