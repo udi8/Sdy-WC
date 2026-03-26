@@ -286,7 +286,7 @@ const AdminTournamentPage = () => {
       {/* Custom ID lookup */}
       <div className="tournament-search card">
         <h3>ייבוא לפי ID מ-TheSportsDB</h3>
-        <p className="text-muted" style={{ fontSize: '0.85rem', marginBottom: '0.75rem' }}>
+        <p className="text-muted caption-text">
           לא מצאת? גש ל-<strong>thesportsdb.com</strong>, חפש את הטורניר,
           העתק את ה-ID מה-URL (למשל: <code>4480</code>) והדבק כאן.
         </p>
@@ -319,7 +319,7 @@ const AdminTournamentPage = () => {
       {/* football-data.org import */}
       <div className="tournament-search card">
         <h3>ייבוא מ-football-data.org</h3>
-        <p className="text-muted" style={{ fontSize: '0.85rem', marginBottom: '0.75rem' }}>
+        <p className="text-muted caption-text">
           ייבוא מלא — 48+ קבוצות, כל המשחקים, שחקנים. דורש{' '}
           <strong>Cloudflare Worker</strong> עם API key (ראה <code>workers/football-proxy/</code>).
           קודים: <code>WC</code> · <code>CL</code> · <code>PL</code> · <code>BL1</code> · <code>SA</code> · <code>FL1</code>
@@ -360,12 +360,12 @@ const AdminTournamentPage = () => {
       </div>
 
       {/* ESPN import */}
-      <div className="card import-section">
+      <div className="tournament-search card">
         <h3>ייבוא מ-ESPN <span className="badge badge-muted">ללא API Key</span></h3>
-        <p className="text-muted" style={{ fontSize: '0.85rem', marginBottom: '0.75rem' }}>
+        <p className="text-muted caption-text">
           סקר שבועי של לוח התוצאות — 139 ליגות, ללא הגדרות נוספות
         </p>
-        <div className="import-row">
+        <div className="search-row">
           <input
             className="form-control season-input"
             placeholder="ספורט (soccer)"

@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   setDoc,
   deleteDoc,
@@ -438,47 +439,41 @@ export { TOTAL_PLAYER_CHUNKS }
 export const importFromESPN = async (sport, league, startDate, endDate) => {
   const tournamentId = `espn_${sport}_${league}_${startDate.slice(0, 4)}`
 
-  // 1. Teams
-  const teamsData = await fetchESPNTeams(sport, league)
-  const teamsList = teamsData.sports?.[0]?.leagues?.[0]?.teams?.map((t) => t.team) || []
-  const teamsMap  = {}
-  for (const t of teamsList) {
-    teamsMap[String(t.id)] = {
-      id:    String(t.id),
-      name:  t.shortDisplayName || t.displayName || t.name,
-      badge: t.logos?.[0]?.href || null,
-    }
+  // Build list of weekly date strings to sweep
+  const dates = []
+  for (let d = new Date(startDate); d <= new Date(endDate); d.setDate(d.getDate() + 7)) {
+    dates.push(d.toISOString().slice(0, 10).replace(/-/g, ''))
   }
 
-  // 2. Sweep scoreboard week by week
+  // Fetch teams + all scoreboard weeks in parallel
+  const [teamsData, ...scoreboards] = await Promise.all([
+    fetchESPNTeams(sport, league),
+    ...dates.map((dt) => fetchESPNScoreboard(sport, league, dt)),
+  ])
+  const teamsList = teamsData.sports?.[0]?.leagues?.[0]?.teams?.map((t) => t.team) || []
+  const name      = teamsData.sports?.[0]?.leagues?.[0]?.name || `${sport}/${league}`
+
+  // Deduplicate events across weeks
   const eventsMap = {}
-  let cursor = new Date(startDate)
-  const end  = new Date(endDate)
-  while (cursor <= end) {
-    const dateStr = cursor.toISOString().slice(0, 10).replace(/-/g, '')
-    const sb = await fetchESPNScoreboard(sport, league, dateStr)
-    for (const event of (sb.events || [])) {
-      eventsMap[event.id] = event
-    }
-    cursor.setDate(cursor.getDate() + 7)
+  for (const sb of scoreboards) {
+    for (const event of (sb.events || [])) eventsMap[event.id] = event
   }
   const events = Object.values(eventsMap)
 
-  // 3. Write tournament doc
-  const name = teamsData.sports?.[0]?.leagues?.[0]?.name || `${sport}/${league}`
+  // Write tournament doc
   await setDoc(doc(db, 'tournaments', tournamentId), {
-    id:          tournamentId,
+    id:           tournamentId,
     name,
-    season:      startDate.slice(0, 4),
+    season:       startDate.slice(0, 4),
     sport,
-    status:      'setup',
+    status:       'setup',
     playerChunks: [],
     manualTeams:  [],
-    createdAt:   serverTimestamp(),
-    updatedAt:   serverTimestamp(),
+    createdAt:    serverTimestamp(),
+    updatedAt:    serverTimestamp(),
   })
 
-  // 4. Write matches
+  // Write matches
   let batch = writeBatch(db)
   let count = 0
   for (const event of events) {
@@ -486,8 +481,6 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
     if (!comp) continue
     const [h, a] = comp.competitors || []
     if (!h || !a) continue
-    const homeId = String(h.team.id)
-    const awayId = String(a.team.id)
     const ref = doc(db, 'tournaments', tournamentId, 'matches', String(event.id))
     batch.set(ref, {
       id:       String(event.id),
@@ -495,8 +488,8 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
       time:     event.date?.slice(11, 16) || null,
       status:   espnMapStatus(event.status?.type?.name),
       round:    event.week?.number || null,
-      homeTeam: { id: homeId, name: h.team.shortDisplayName || h.team.displayName },
-      awayTeam: { id: awayId, name: a.team.shortDisplayName || a.team.displayName },
+      homeTeam: { id: String(h.team.id), name: h.team.shortDisplayName || h.team.displayName },
+      awayTeam: { id: String(a.team.id), name: a.team.shortDisplayName || a.team.displayName },
       score: {
         home: h.score != null ? Number(h.score) : null,
         away: a.score != null ? Number(a.score) : null,
@@ -508,30 +501,37 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
   }
   if (count > 0) await batch.commit()
 
-  // 5. Write players (roster per team)
+  // Fetch all rosters in parallel (throttled: 5 at a time)
+  const CONCURRENCY = 5
   let playerCount = 0
-  for (const team of teamsList) {
-    let rosterData
-    try {
-      rosterData = await fetchESPNRoster(sport, league, team.id)
-    } catch { continue }
-    const athletes = rosterData.athletes || []
-    if (athletes.length === 0) continue
-    let pb = writeBatch(db); let pc = 0
-    for (const a of athletes) {
-      const ref = doc(db, 'tournaments', tournamentId, 'players', String(a.id))
-      pb.set(ref, {
-        id:          String(a.id),
-        name:        a.fullName || a.displayName || '',
-        position:    a.position?.abbreviation || a.position?.displayName || null,
-        nationality: a.citizenship || null,
-        teamId:      String(team.id),
-        teamName:    team.shortDisplayName || team.displayName || team.name,
-      })
-      pc++; playerCount++
-      if (pc === 490) { await pb.commit(); pb = writeBatch(db); pc = 0 }
+  for (let i = 0; i < teamsList.length; i += CONCURRENCY) {
+    const slice   = teamsList.slice(i, i + CONCURRENCY)
+    const rosters = await Promise.all(
+      slice.map((t) => fetchESPNRoster(sport, league, t.id).catch((err) => {
+        console.warn(`ESPN roster failed for team ${t.id}:`, err.message)
+        return null
+      }))
+    )
+    for (let j = 0; j < slice.length; j++) {
+      const athletes = rosters[j]?.athletes || []
+      if (athletes.length === 0) continue
+      const team = slice[j]
+      let pb = writeBatch(db); let pc = 0
+      for (const a of athletes) {
+        const ref = doc(db, 'tournaments', tournamentId, 'players', String(a.id))
+        pb.set(ref, {
+          id:          String(a.id),
+          name:        a.fullName || a.displayName || '',
+          position:    a.position?.abbreviation || a.position?.displayName || null,
+          nationality: a.citizenship || null,
+          teamId:      String(team.id),
+          teamName:    team.shortDisplayName || team.displayName || team.name,
+        })
+        pc++; playerCount++
+        if (pc === 490) { await pb.commit(); pb = writeBatch(db); pc = 0 }
+      }
+      if (pc > 0) await pb.commit()
     }
-    if (pc > 0) await pb.commit()
   }
 
   return { tournamentId, name, matchCount: events.length, playerCount }
