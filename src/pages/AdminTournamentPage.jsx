@@ -3,9 +3,10 @@ import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
 import { db } from '../services/firebase/config'
 import { getLeague } from '../services/api/sportsDb'
 import { POPULAR_LEAGUES } from '../data/leagues'
-import { importTournament, importTournamentPlayers, addManualTeams, activateTournament, deactivateTournament, deleteTournament, TOTAL_PLAYER_CHUNKS } from '../services/firebase/tournaments'
+import { importTournament, importTournamentPlayers, addManualTeams, activateTournament, deactivateTournament, deleteTournament, importFromFootballData, importFromESPN, TOTAL_PLAYER_CHUNKS } from '../services/firebase/tournaments'
 import { toast } from 'react-toastify'
 import './AdminTournamentPage.css'
+import { seasonToEndDate } from '../utils/season'
 
 const defaultSeason = () => {
   const y = new Date().getFullYear()
@@ -24,6 +25,17 @@ const AdminTournamentPage = () => {
   const [deletingId, setDeletingId]       = useState(null)
   const [importProgress, setImportProgress] = useState('')
   const [tournaments, setTournaments] = useState([])
+  const [fdCode, setFdCode]           = useState('')
+  const [fdSeason, setFdSeason]       = useState('2026')
+  const [fdImporting, setFdImporting] = useState(false)
+  const [fdProgress, setFdProgress]   = useState('')
+  const [espnSport, setEspnSport]     = useState('soccer')
+  const [espnLeague, setEspnLeague]   = useState('')
+  const [espnStart, setEspnStart]     = useState('')
+  const [espnEnd, setEspnEnd]         = useState('')
+  const [espnImporting, setEspnImporting] = useState(false)
+  const [espnImportingId, setEspnImportingId] = useState(null)
+  const [espnProgress, setEspnProgress]   = useState('')
 
   useEffect(() => {
     const q = query(collection(db, 'tournaments'), orderBy('createdAt', 'desc'))
@@ -113,6 +125,37 @@ const AdminTournamentPage = () => {
     }
   }
 
+  const handleESPNImportForLeague = async (league) => {
+    const season   = getSeason(league.id)
+    const fromDate = getFromDate(league.id).trim()
+    const endDate  = seasonToEndDate(season)
+
+    if (!fromDate) { toast.error('יש להזין תאריך התחלה לייבוא ESPN'); return }
+    if (!endDate)  { toast.error('יש להזין עונה'); return }
+    if (!window.confirm(`לייבא "${league.name}" עונת ${season} מ-ESPN (${fromDate} → ${endDate})?`)) return
+
+    setEspnImportingId(league.id)
+    setImportingId(league.id)
+    setImportProgress(`מייבא "${league.name}" מ-ESPN...`)
+    try {
+      const result = await importFromESPN(
+        league.espnSport,
+        league.espnId,
+        fromDate,
+        endDate,
+      )
+      setImportProgress('')
+      toast.success(`✅ "${result.name}" יובא מ-ESPN (${result.matchCount} משחקים, ${result.playerCount} שחקנים)`)
+    } catch (err) {
+      console.error(err)
+      toast.error('שגיאה בייבוא ESPN: ' + err.message)
+      setImportProgress('')
+    } finally {
+      setEspnImportingId(null)
+      setImportingId(null)
+    }
+  }
+
   const handleImportPlayers = async (t, chunkNum) => {
     const key = `${t.id}-${chunkNum}`
     setImportingPlayers(key)
@@ -139,6 +182,48 @@ const AdminTournamentPage = () => {
     }
   }
 
+  const handleFDImport = async () => {
+    const code = fdCode.trim().toUpperCase()
+    if (!code)          { toast.error('יש להזין קוד תחרות'); return }
+    if (!fdSeason.trim()) { toast.error('יש להזין עונה'); return }
+    if (!window.confirm(`לייבא "${code}" עונת ${fdSeason} מ-football-data.org?`)) return
+
+    setFdImporting(true)
+    setFdProgress(`מייבא "${code}" עונת ${fdSeason}...`)
+    try {
+      const result = await importFromFootballData(code, fdSeason)
+      setFdCode('')
+      setFdProgress('')
+      toast.success(`✅ "${result.name}" יובא (${result.matchCount} משחקים, ${result.playerCount} שחקנים)`)
+    } catch (err) {
+      console.error(err)
+      toast.error('שגיאה: ' + err.message)
+      setFdProgress('')
+    } finally {
+      setFdImporting(false)
+    }
+  }
+
+  const handleESPNImport = async () => {
+    if (!espnLeague.trim()) { toast.error('יש להזין קוד ליגה'); return }
+    if (!espnStart || !espnEnd) { toast.error('יש להזין תאריך התחלה וסיום'); return }
+    if (!window.confirm(`לייבא "${espnSport}/${espnLeague}" (${espnStart} → ${espnEnd}) מ-ESPN?`)) return
+    setEspnImporting(true)
+    setEspnProgress(`מייבא ${espnLeague}...`)
+    try {
+      const result = await importFromESPN(espnSport, espnLeague.trim().toLowerCase(), espnStart, espnEnd)
+      setEspnLeague('')
+      setEspnProgress('')
+      toast.success(`✅ "${result.name}" יובא (${result.matchCount} משחקים, ${result.playerCount} שחקנים)`)
+    } catch (err) {
+      console.error(err)
+      toast.error('שגיאה: ' + err.message)
+      setEspnProgress('')
+    } finally {
+      setEspnImporting(false)
+    }
+  }
+
   const handleActivate   = async (t) => {
     try { await activateTournament(t.id);   toast.success(`"${t.name}" הופעל!`) }
     catch (err) { toast.error(err.message) }
@@ -162,6 +247,8 @@ const AdminTournamentPage = () => {
           <strong>{league.name}{league.altName ? ` / ${league.altName}` : ''}</strong>
           <span className="text-muted competition-meta">
             {[league.country, league.sport !== 'Soccer' ? league.sport : null].filter(Boolean).join(' · ')}
+            {league.espnId  && <span className="badge badge-muted" style={{ marginRight: '0.4rem' }}>ESPN</span>}
+            {league.fdCode  && <span className="badge badge-muted" style={{ marginRight: '0.4rem' }}>FD:{league.fdCode}</span>}
           </span>
         </div>
       </div>
@@ -179,16 +266,27 @@ const AdminTournamentPage = () => {
           className="form-control season-input"
           value={getFromDate(league.id)}
           onChange={(e) => setFromDate(league.id, e.target.value)}
-          title="הצג קבוצות מתאריך — רק קבוצות שיש להן משחק מהתאריך הזה ואילך יופיעו בהימורים"
+          title="תאריך התחלה — גם משמש כתאריך התחלה לייבוא ESPN"
           disabled={!!importingId}
         />
-        <button
-          className="btn btn-primary"
-          onClick={() => handleImport(league)}
-          disabled={!!importingId}
-        >
-          {importingId === league.id ? '⏳' : '⬇️ ייבא'}
-        </button>
+        {league.espnId ? (
+          <button
+            className="btn btn-primary"
+            onClick={() => handleESPNImportForLeague(league)}
+            disabled={!!importingId}
+            title="ייבא מ-ESPN (מומלץ)"
+          >
+            {espnImportingId === league.id ? '⏳' : '⬇️ ESPN'}
+          </button>
+        ) : (
+          <button
+            className="btn btn-primary"
+            onClick={() => handleImport(league)}
+            disabled={!!importingId}
+          >
+            {importingId === league.id ? '⏳' : '⬇️ ייבא'}
+          </button>
+        )}
       </div>
     </li>
   )
@@ -234,7 +332,7 @@ const AdminTournamentPage = () => {
       {/* Custom ID lookup */}
       <div className="tournament-search card">
         <h3>ייבוא לפי ID מ-TheSportsDB</h3>
-        <p className="text-muted" style={{ fontSize: '0.85rem', marginBottom: '0.75rem' }}>
+        <p className="text-muted caption-text">
           לא מצאת? גש ל-<strong>thesportsdb.com</strong>, חפש את הטורניר,
           העתק את ה-ID מה-URL (למשל: <code>4480</code>) והדבק כאן.
         </p>
@@ -261,6 +359,92 @@ const AdminTournamentPage = () => {
           <ul className="competition-list mt-1">
             <LeagueRow league={customResult} />
           </ul>
+        )}
+      </div>
+
+      {/* football-data.org import */}
+      <div className="tournament-search card">
+        <h3>ייבוא מ-football-data.org</h3>
+        <p className="text-muted caption-text">
+          ייבוא מלא — 48+ קבוצות, כל המשחקים, שחקנים. דורש{' '}
+          <strong>Cloudflare Worker</strong> עם API key (ראה <code>workers/football-proxy/</code>).
+          קודים: <code>WC</code> · <code>CL</code> · <code>PL</code> · <code>BL1</code> · <code>SA</code> · <code>FL1</code>
+        </p>
+        <div className="search-row">
+          <input
+            type="text"
+            className="form-control"
+            placeholder="קוד — WC / CL / PL"
+            value={fdCode}
+            onChange={(e) => setFdCode(e.target.value.toUpperCase())}
+            onKeyDown={(e) => e.key === 'Enter' && handleFDImport()}
+            disabled={fdImporting}
+            style={{ maxWidth: '160px' }}
+          />
+          <input
+            type="text"
+            className="form-control season-input"
+            placeholder="עונה — 2026"
+            value={fdSeason}
+            onChange={(e) => setFdSeason(e.target.value)}
+            disabled={fdImporting}
+          />
+          <button
+            className="btn btn-primary"
+            onClick={handleFDImport}
+            disabled={fdImporting || !fdCode.trim()}
+          >
+            {fdImporting ? '⏳' : '⬇️ ייבא'}
+          </button>
+        </div>
+        {fdProgress && (
+          <div className="import-progress mt-1">
+            <div className="import-spinner" />
+            <span>{fdProgress}</span>
+          </div>
+        )}
+      </div>
+
+      {/* ESPN import */}
+      <div className="tournament-search card">
+        <h3>ייבוא מ-ESPN <span className="badge badge-muted">ללא API Key</span></h3>
+        <p className="text-muted caption-text">
+          סקר שבועי של לוח התוצאות — 139 ליגות, ללא הגדרות נוספות
+        </p>
+        <div className="search-row">
+          <input
+            className="form-control season-input"
+            placeholder="ספורט (soccer)"
+            value={espnSport}
+            onChange={(e) => setEspnSport(e.target.value)}
+            disabled={espnImporting}
+          />
+          <input
+            className="form-control season-input"
+            placeholder="ליגה: eng.1 / isr.1 / fifa.world"
+            value={espnLeague}
+            onChange={(e) => setEspnLeague(e.target.value)}
+            disabled={espnImporting}
+          />
+          <input type="date" className="form-control season-input"
+            value={espnStart} onChange={(e) => setEspnStart(e.target.value)}
+            disabled={espnImporting} title="תאריך התחלה" />
+          <input type="date" className="form-control season-input"
+            value={espnEnd} onChange={(e) => setEspnEnd(e.target.value)}
+            disabled={espnImporting} title="תאריך סיום" />
+          <button
+            className="btn btn-primary"
+            onClick={handleESPNImport}
+            disabled={espnImporting || !espnLeague.trim() || !espnStart || !espnEnd}
+          >
+            {espnImporting ? '⏳' : '⬇️ ייבא'}
+          </button>
+        </div>
+        {espnProgress && (
+          <div className="import-progress mt-1">
+            <div className="import-spinner" />
+            <span>{espnProgress}</span>
+          </div>
         )}
       </div>
 
