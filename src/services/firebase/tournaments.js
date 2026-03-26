@@ -463,30 +463,32 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
   const name = scoreboards.find((sb) => sb.leagues?.[0]?.name)?.leagues?.[0]?.name
     || `${sport}/${league}`
 
-  // Build teams map from matches only — excludes qualifying-round teams
-  // Placeholder competitors (e.g. "Group G Winner", "TBD") are skipped
-  const PLACEHOLDER = /winner|loser|runner.?up|tbd|^\d+$/i
+  // Placeholder pattern — covers TBD, Winner/Loser qualifiers, playoff slots, etc.
+  const PLACEHOLDER = /winner|loser|runner.?up|tbd|playoff|qualifier|intercontinental|\bic\b|^\s*[\d\s]+\s*$/i
   const isRealTeam  = (t) => t?.id && !PLACEHOLDER.test(t.displayName || '') && !PLACEHOLDER.test(t.shortDisplayName || '')
 
-  const teamsMap = new Map()
+  // Primary: teams endpoint (comprehensive, correct count for the tournament)
+  // Filter placeholders that ESPN sometimes includes (playoff slots, qualifiers)
+  const endpointTeams = (teamsData?.sports?.[0]?.leagues?.[0]?.teams?.map((t) => t.team) || [])
+    .filter(isRealTeam)
+
+  // Supplement: teams seen in actual matches (used to detect eliminated teams when importing mid-season)
+  const matchTeamIds = new Set()
   for (const event of events) {
     const comp = event.competitions?.[0]
     if (!comp) continue
     const [h, a] = comp.competitors || []
-    if (isRealTeam(h?.team)) teamsMap.set(String(h.team.id), {
-      id: String(h.team.id),
-      shortDisplayName: h.team.shortDisplayName,
-      displayName: h.team.displayName,
-    })
-    if (isRealTeam(a?.team)) teamsMap.set(String(a.team.id), {
-      id: String(a.team.id),
-      shortDisplayName: a.team.shortDisplayName,
-      displayName: a.team.displayName,
-    })
+    if (isRealTeam(h?.team)) matchTeamIds.add(String(h.team.id))
+    if (isRealTeam(a?.team)) matchTeamIds.add(String(a.team.id))
   }
-  // If no real teams found in matches (tournament hasn't started yet), fall back to teams endpoint
-  const fallbackTeams = teamsData?.sports?.[0]?.leagues?.[0]?.teams?.map((t) => t.team) || []
-  const teamsList = teamsMap.size > 0 ? Array.from(teamsMap.values()) : fallbackTeams
+
+  // If matches exist AND start date is after today, filter to only teams still playing
+  // Otherwise use the full endpoint list (pre-tournament or current season)
+  const today = new Date().toISOString().slice(0, 10)
+  const filterByMatches = matchTeamIds.size > 0 && startDate > today
+  const teamsList = filterByMatches
+    ? endpointTeams.filter((t) => matchTeamIds.has(String(t.id)))
+    : endpointTeams
 
   // Write tournament doc
   await setDoc(doc(db, 'tournaments', tournamentId), {
@@ -543,7 +545,9 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
     )
     for (let j = 0; j < slice.length; j++) {
       const rosterData = rosters[j]
-      const athletes   = rosterData?.team?.athletes || rosterData?.athletes || []
+      // ESPN returns athletes as position groups: [{ items: [player, ...] }, ...]
+      const groups   = rosterData?.team?.athletes || rosterData?.athletes || []
+      const athletes = groups.flatMap((g) => g.items || g)
       if (athletes.length === 0) continue
       const team = slice[j]
       let pb = writeBatch(db); let pc = 0
