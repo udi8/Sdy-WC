@@ -20,6 +20,12 @@ import {
   fetchFDMatches,
   fetchFDLiveMatches,
 } from '../api/footballData'
+import {
+  fetchESPNTeams,
+  fetchESPNRoster,
+  fetchESPNScoreboard,
+  espnMapStatus,
+} from '../api/espn'
 
 /**
  * Import a tournament from TheSportsDB into Firebase.
@@ -315,3 +321,117 @@ export const refreshLiveScores = async (tournamentId, competitionCode) => {
 }
 
 export { TOTAL_PLAYER_CHUNKS }
+
+// ─── ESPN import ──────────────────────────────────────────────────────────────
+
+/**
+ * Import a tournament from ESPN's public API (no API key required).
+ * Sweeps scoreboard week-by-week between startDate and endDate.
+ *
+ * @param {string} sport       e.g. 'soccer'
+ * @param {string} league      e.g. 'isr.1', 'eng.1', 'fifa.world'
+ * @param {string} startDate   ISO date 'YYYY-MM-DD'
+ * @param {string} endDate     ISO date 'YYYY-MM-DD'
+ * @returns {{ tournamentId, name, matchCount, playerCount }}
+ */
+export const importFromESPN = async (sport, league, startDate, endDate) => {
+  const tournamentId = `espn_${sport}_${league}_${startDate.slice(0, 4)}`
+
+  // 1. Teams
+  const teamsData = await fetchESPNTeams(sport, league)
+  const teamsList = teamsData.sports?.[0]?.leagues?.[0]?.teams?.map((t) => t.team) || []
+  const teamsMap  = {}
+  for (const t of teamsList) {
+    teamsMap[String(t.id)] = {
+      id:    String(t.id),
+      name:  t.shortDisplayName || t.displayName || t.name,
+      badge: t.logos?.[0]?.href || null,
+    }
+  }
+
+  // 2. Sweep scoreboard week by week
+  const eventsMap = {}
+  let cursor = new Date(startDate)
+  const end  = new Date(endDate)
+  while (cursor <= end) {
+    const dateStr = cursor.toISOString().slice(0, 10).replace(/-/g, '')
+    const sb = await fetchESPNScoreboard(sport, league, dateStr)
+    for (const event of (sb.events || [])) {
+      eventsMap[event.id] = event
+    }
+    cursor.setDate(cursor.getDate() + 7)
+  }
+  const events = Object.values(eventsMap)
+
+  // 3. Write tournament doc
+  const name = teamsData.sports?.[0]?.leagues?.[0]?.name || `${sport}/${league}`
+  await setDoc(doc(db, 'tournaments', tournamentId), {
+    id:          tournamentId,
+    name,
+    season:      startDate.slice(0, 4),
+    sport,
+    status:      'setup',
+    playerChunks: [],
+    manualTeams:  [],
+    createdAt:   serverTimestamp(),
+    updatedAt:   serverTimestamp(),
+  })
+
+  // 4. Write matches
+  let batch = writeBatch(db)
+  let count = 0
+  for (const event of events) {
+    const comp = event.competitions?.[0]
+    if (!comp) continue
+    const [h, a] = comp.competitors || []
+    if (!h || !a) continue
+    const homeId = String(h.team.id)
+    const awayId = String(a.team.id)
+    const ref = doc(db, 'tournaments', tournamentId, 'matches', String(event.id))
+    batch.set(ref, {
+      id:       String(event.id),
+      date:     event.date?.slice(0, 10) || null,
+      time:     event.date?.slice(11, 16) || null,
+      status:   espnMapStatus(event.status?.type?.name),
+      round:    event.week?.number || null,
+      homeTeam: { id: homeId, name: h.team.shortDisplayName || h.team.displayName },
+      awayTeam: { id: awayId, name: a.team.shortDisplayName || a.team.displayName },
+      score: {
+        home: h.score != null ? Number(h.score) : null,
+        away: a.score != null ? Number(a.score) : null,
+      },
+      locked: false,
+    })
+    count++
+    if (count === 490) { await batch.commit(); batch = writeBatch(db); count = 0 }
+  }
+  if (count > 0) await batch.commit()
+
+  // 5. Write players (roster per team)
+  let playerCount = 0
+  for (const team of teamsList) {
+    let rosterData
+    try {
+      rosterData = await fetchESPNRoster(sport, league, team.id)
+    } catch { continue }
+    const athletes = rosterData.athletes || []
+    if (athletes.length === 0) continue
+    let pb = writeBatch(db); let pc = 0
+    for (const a of athletes) {
+      const ref = doc(db, 'tournaments', tournamentId, 'players', String(a.id))
+      pb.set(ref, {
+        id:          String(a.id),
+        name:        a.fullName || a.displayName || '',
+        position:    a.position?.abbreviation || a.position?.displayName || null,
+        nationality: a.citizenship || null,
+        teamId:      String(team.id),
+        teamName:    team.shortDisplayName || team.displayName || team.name,
+      })
+      pc++; playerCount++
+      if (pc === 490) { await pb.commit(); pb = writeBatch(db); pc = 0 }
+    }
+    if (pc > 0) await pb.commit()
+  }
+
+  return { tournamentId, name, matchCount: events.length, playerCount }
+}
