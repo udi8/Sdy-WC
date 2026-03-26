@@ -452,23 +452,26 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
   const groupEntry = calEntries.find((e) => e.label?.toLowerCase().includes('group'))
   const isTournament = calEntries.length > 0
 
+  // Build weekly date sweep — for tournament mode: sweep within group stage entry's dates
+  //                         — for league mode: sweep across the full season range
+  const sweepFrom = (isTournament && groupEntry)
+    ? groupEntry.startDate.slice(0, 10)
+    : startDate
+  const sweepTo   = (isTournament && groupEntry)
+    ? groupEntry.endDate.slice(0, 10)
+    : endDate
+
+  const dates = []
+  for (let d = new Date(sweepFrom); d <= new Date(sweepTo); d.setDate(d.getDate() + 7)) {
+    dates.push(d.toISOString().slice(0, 10).replace(/-/g, ''))
+  }
+
+  const scoreboards = await Promise.all(
+    dates.map((dt) => fetchESPNScoreboard(sport, league, dt).catch(() => ({ events: [] })))
+  )
   const eventsMap = {}
-  if (isTournament && groupEntry) {
-    const from = groupEntry.startDate.slice(0, 10).replace(/-/g, '')
-    const to   = groupEntry.endDate.slice(0, 10).replace(/-/g, '')
-    const sb = await fetchESPNDateRange(sport, league, from, to).catch(() => ({ events: [] }))
+  for (const sb of scoreboards) {
     for (const e of (sb.events || [])) eventsMap[e.id] = e
-  } else {
-    const dates = []
-    for (let d = new Date(startDate); d <= new Date(endDate); d.setDate(d.getDate() + 7)) {
-      dates.push(d.toISOString().slice(0, 10).replace(/-/g, ''))
-    }
-    const scoreboards = await Promise.all(
-      dates.map((dt) => fetchESPNScoreboard(sport, league, dt).catch(() => ({ events: [] })))
-    )
-    for (const sb of scoreboards) {
-      for (const e of (sb.events || [])) eventsMap[e.id] = e
-    }
   }
   const events = Object.values(eventsMap)
 
@@ -616,10 +619,19 @@ export const refreshTournamentStage = async (tournamentId, stageValue) => {
   if (!stage) throw new Error(`Stage ${stageValue} not found in tournament`)
   if (!stage.startDate || !stage.endDate) throw new Error('Stage missing date range')
 
-  const from = stage.startDate.slice(0, 10).replace(/-/g, '')
-  const to   = stage.endDate.slice(0, 10).replace(/-/g, '')
-  const sb   = await fetchESPNDateRange(sport, league, from, to)
-  const events = sb.events || []
+  // Sweep week-by-week within the stage's date range (range call returns partial results)
+  const stageDates = []
+  for (let d = new Date(stage.startDate.slice(0, 10)); d <= new Date(stage.endDate.slice(0, 10)); d.setDate(d.getDate() + 7)) {
+    stageDates.push(d.toISOString().slice(0, 10).replace(/-/g, ''))
+  }
+  const stageBoards = await Promise.all(
+    stageDates.map((dt) => fetchESPNScoreboard(sport, league, dt).catch(() => ({ events: [] })))
+  )
+  const eventsMap = {}
+  for (const sb of stageBoards) {
+    for (const e of (sb.events || [])) eventsMap[e.id] = e
+  }
+  const events = Object.values(eventsMap)
 
   const PLACEHOLDER = /winner|loser|runner.?up|tbd|playoff|qualifier|intercontinental|\bic\b|\bgroup\b|^\s*[\d\s]+\s*$/i
   const isRealTeam  = (t) => t?.id && !PLACEHOLDER.test(t.displayName || '') && !PLACEHOLDER.test(t.shortDisplayName || '')
