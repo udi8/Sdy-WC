@@ -440,91 +440,105 @@ export { TOTAL_PLAYER_CHUNKS }
 export const importFromESPN = async (sport, league, startDate, endDate) => {
   const tournamentId = `espn_${sport}_${league}_${startDate.slice(0, 4)}`
 
-  // Build list of weekly date strings to sweep (fallback if range call misses events)
-  const dates = []
-  for (let d = new Date(startDate); d <= new Date(endDate); d.setDate(d.getDate() + 7)) {
-    dates.push(d.toISOString().slice(0, 10).replace(/-/g, ''))
-  }
-  const fromStr = startDate.replace(/-/g, '')
-  const toStr   = endDate.replace(/-/g, '')
+  // ── 1. Fetch base scoreboard (no date) to discover league name + calendar stages ──
+  const baseSb = await fetchESPNScoreboard(sport, league, null).catch(() => ({}))
+  const calEntries = baseSb.leagues?.[0]?.calendar?.[0]?.entries || []
+  const name = baseSb.leagues?.[0]?.name || `${sport}/${league}`
 
-  // Fetch: teams + full date-range call + weekly sweep (all in parallel)
-  // The range call gets all matches in one shot for tournaments with known schedules.
-  // Weekly sweep acts as supplement for leagues where the range format returns partial data.
-  const [teamsData, rangeSb, ...scoreboards] = await Promise.all([
-    fetchESPNTeams(sport, league).catch(() => null),
-    fetchESPNDateRange(sport, league, fromStr, toStr).catch(() => ({ events: [] })),
-    ...dates.map((dt) => fetchESPNScoreboard(sport, league, dt).catch(() => ({ events: [] }))),
-  ])
+  // ── 2. Decide fetch strategy ──────────────────────────────────────────────────
+  // Tournament mode: ESPN provides stage entries with date ranges (WC, CL, etc.)
+  //   → fetch only group stage by calendar date range
+  // League mode: no entries → sweep week-by-week across the full season
+  const groupEntry = calEntries.find((e) => e.label?.toLowerCase().includes('group'))
+  const isTournament = calEntries.length > 0
 
-  // Deduplicate events from both sources
   const eventsMap = {}
-  for (const event of (rangeSb.events || [])) eventsMap[event.id] = event
-  for (const sb of scoreboards) {
-    for (const event of (sb.events || [])) eventsMap[event.id] = event
+  if (isTournament && groupEntry) {
+    const from = groupEntry.startDate.slice(0, 10).replace(/-/g, '')
+    const to   = groupEntry.endDate.slice(0, 10).replace(/-/g, '')
+    const sb = await fetchESPNDateRange(sport, league, from, to).catch(() => ({ events: [] }))
+    for (const e of (sb.events || [])) eventsMap[e.id] = e
+  } else {
+    const dates = []
+    for (let d = new Date(startDate); d <= new Date(endDate); d.setDate(d.getDate() + 7)) {
+      dates.push(d.toISOString().slice(0, 10).replace(/-/g, ''))
+    }
+    const scoreboards = await Promise.all(
+      dates.map((dt) => fetchESPNScoreboard(sport, league, dt).catch(() => ({ events: [] })))
+    )
+    for (const sb of scoreboards) {
+      for (const e of (sb.events || [])) eventsMap[e.id] = e
+    }
   }
   const events = Object.values(eventsMap)
 
-  // Derive league name from range call or first weekly scoreboard that has it
-  const allSbs = [rangeSb, ...scoreboards]
-  const name = allSbs.find((sb) => sb.leagues?.[0]?.name)?.leagues?.[0]?.name
-    || `${sport}/${league}`
-
-  // Placeholder pattern — covers TBD, Winner/Loser qualifiers, playoff slots, etc.
-  const PLACEHOLDER = /winner|loser|runner.?up|tbd|playoff|qualifier|intercontinental|\bic\b|^\s*[\d\s]+\s*$/i
+  // ── 3. Placeholder filter ─────────────────────────────────────────────────────
+  // Covers: TBD, Winner/Loser, playoff slots, "GROUP A 2ND", "GROUP L 1ST", etc.
+  const PLACEHOLDER = /winner|loser|runner.?up|tbd|playoff|qualifier|intercontinental|\bic\b|\bgroup\b|^\s*[\d\s]+\s*$/i
   const isRealTeam  = (t) => t?.id && !PLACEHOLDER.test(t.displayName || '') && !PLACEHOLDER.test(t.shortDisplayName || '')
 
-  // Primary: teams endpoint (comprehensive, correct count for the tournament)
-  // Filter placeholders that ESPN sometimes includes (playoff slots, qualifiers)
-  const endpointTeams = (teamsData?.sports?.[0]?.leagues?.[0]?.teams?.map((t) => t.team) || [])
-    .filter(isRealTeam)
-
-  // Supplement: teams seen in actual matches (used to detect eliminated teams when importing mid-season)
-  const matchTeamIds = new Set()
-  for (const event of events) {
-    const comp = event.competitions?.[0]
-    if (!comp) continue
-    const [h, a] = comp.competitors || []
-    if (isRealTeam(h?.team)) matchTeamIds.add(String(h.team.id))
-    if (isRealTeam(a?.team)) matchTeamIds.add(String(a.team.id))
+  // ── 4. Build teams list ───────────────────────────────────────────────────────
+  // Tournament: extract from group stage matches → only confirmed qualified teams, no qualifiers
+  // League:     use ESPN teams endpoint (comprehensive for ongoing seasons)
+  let teamsList
+  if (isTournament) {
+    const matchTeamsMap = new Map()
+    for (const event of events) {
+      const comp = event.competitions?.[0]
+      if (!comp) continue
+      const [h, a] = comp.competitors || []
+      if (isRealTeam(h?.team)) matchTeamsMap.set(String(h.team.id), h.team)
+      if (isRealTeam(a?.team)) matchTeamsMap.set(String(a.team.id), a.team)
+    }
+    teamsList = Array.from(matchTeamsMap.values())
+  } else {
+    const teamsData = await fetchESPNTeams(sport, league).catch(() => null)
+    teamsList = (teamsData?.sports?.[0]?.leagues?.[0]?.teams?.map((t) => t.team) || [])
+      .filter(isRealTeam)
   }
 
-  // If matches exist AND start date is after today, filter to only teams still playing
-  // Otherwise use the full endpoint list (pre-tournament or current season)
-  const today = new Date().toISOString().slice(0, 10)
-  const filterByMatches = matchTeamIds.size > 0 && startDate > today
-  const teamsList = filterByMatches
-    ? endpointTeams.filter((t) => matchTeamIds.has(String(t.id)))
-    : endpointTeams
+  // ── 5. Write tournament doc ───────────────────────────────────────────────────
+  const stages = calEntries.map((e) => ({
+    label:     e.label,
+    value:     e.value,
+    startDate: e.startDate,
+    endDate:   e.endDate   || null,
+    imported:  groupEntry ? e.value === groupEntry.value : false,
+  }))
 
-  // Write tournament doc
   await setDoc(doc(db, 'tournaments', tournamentId), {
     id:           tournamentId,
     name,
     season:       startDate.slice(0, 4),
     sport,
+    espnLeague:   league,
     status:       'setup',
     playerChunks: [],
     manualTeams:  [],
+    stages,
     createdAt:    serverTimestamp(),
     updatedAt:    serverTimestamp(),
   })
 
-  // Write matches
+  // ── 6. Write matches ──────────────────────────────────────────────────────────
+  const stageValue = groupEntry?.value || null
   let batch = writeBatch(db)
   let count = 0
+  let matchCount = 0
   for (const event of events) {
     const comp = event.competitions?.[0]
     if (!comp) continue
     const [h, a] = comp.competitors || []
     if (!h || !a) continue
-    if (!isRealTeam(h.team) || !isRealTeam(a.team)) continue   // skip TBD/placeholder matches
+    if (!isRealTeam(h.team) || !isRealTeam(a.team)) continue
     const ref = doc(db, 'tournaments', tournamentId, 'matches', String(event.id))
     batch.set(ref, {
       id:       String(event.id),
       date:     event.date?.slice(0, 10) || null,
       time:     event.date?.slice(11, 16) || null,
+      utcDate:  event.date || null,
       status:   espnMapStatus(event.status?.type?.name),
+      stage:    stageValue,
       round:    event.week?.number || null,
       homeTeam: { id: String(h.team.id), name: h.team.shortDisplayName || h.team.displayName },
       awayTeam: { id: String(a.team.id), name: a.team.shortDisplayName || a.team.displayName },
@@ -534,12 +548,13 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
       },
       locked: false,
     })
+    matchCount++
     count++
     if (count === 490) { await batch.commit(); batch = writeBatch(db); count = 0 }
   }
   if (count > 0) await batch.commit()
 
-  // Fetch rosters only for teams that appear in matches
+  // ── 7. Fetch rosters ──────────────────────────────────────────────────────────
   const CONCURRENCY = 5
   let playerCount = 0
   for (let i = 0; i < teamsList.length; i += CONCURRENCY) {
@@ -552,7 +567,7 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
     )
     for (let j = 0; j < slice.length; j++) {
       const rosterData = rosters[j]
-      // ESPN returns athletes as position groups: [{ items: [player,...] }] or [{ athletes: [player,...] }] or flat array
+      // ESPN returns athletes grouped by position: [{ items: [player,...] }]
       const groups   = rosterData?.team?.athletes || rosterData?.athletes || []
       const athletes = groups.flatMap((g) => g.items || g.athletes || (g.id ? [g] : []))
       if (athletes.length === 0) continue
@@ -575,5 +590,84 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
     }
   }
 
-  return { tournamentId, name, matchCount: events.length, playerCount }
+  return { tournamentId, name, matchCount, playerCount }
+}
+
+/**
+ * Refresh a single knockout stage for an ESPN-imported tournament.
+ * Fetches matches for the given stage's date range and adds any new ones to Firestore.
+ * Skips matches where either team is still a placeholder (not yet determined).
+ *
+ * @param {string} tournamentId  Firestore tournament doc ID
+ * @param {string} stageValue    Calendar entry value, e.g. "2" (Round of 32)
+ * @returns {{ added: number }}  Count of newly added matches
+ */
+export const refreshTournamentStage = async (tournamentId, stageValue) => {
+  const tRef = doc(db, 'tournaments', tournamentId)
+  const tSnap = await getDoc(tRef)
+  if (!tSnap.exists()) throw new Error('Tournament not found')
+
+  const tData = tSnap.data()
+  const sport  = tData.sport
+  const league = tData.espnLeague
+  if (!sport || !league) throw new Error('Tournament missing sport/espnLeague')
+
+  const stage = (tData.stages || []).find((s) => s.value === stageValue)
+  if (!stage) throw new Error(`Stage ${stageValue} not found in tournament`)
+  if (!stage.startDate || !stage.endDate) throw new Error('Stage missing date range')
+
+  const from = stage.startDate.slice(0, 10).replace(/-/g, '')
+  const to   = stage.endDate.slice(0, 10).replace(/-/g, '')
+  const sb   = await fetchESPNDateRange(sport, league, from, to)
+  const events = sb.events || []
+
+  const PLACEHOLDER = /winner|loser|runner.?up|tbd|playoff|qualifier|intercontinental|\bic\b|\bgroup\b|^\s*[\d\s]+\s*$/i
+  const isRealTeam  = (t) => t?.id && !PLACEHOLDER.test(t.displayName || '') && !PLACEHOLDER.test(t.shortDisplayName || '')
+
+  // Load existing match IDs to avoid overwriting
+  const existingSnap = await getDocs(collection(db, 'tournaments', tournamentId, 'matches'))
+  const existingIds  = new Set(existingSnap.docs.map((d) => d.id))
+
+  let batch = writeBatch(db)
+  let count = 0
+  let added = 0
+  for (const event of events) {
+    if (existingIds.has(String(event.id))) continue   // already imported
+    const comp = event.competitions?.[0]
+    if (!comp) continue
+    const [h, a] = comp.competitors || []
+    if (!h || !a) continue
+    if (!isRealTeam(h.team) || !isRealTeam(a.team)) continue   // skip TBD teams
+    const ref = doc(db, 'tournaments', tournamentId, 'matches', String(event.id))
+    batch.set(ref, {
+      id:       String(event.id),
+      date:     event.date?.slice(0, 10) || null,
+      time:     event.date?.slice(11, 16) || null,
+      utcDate:  event.date || null,
+      status:   espnMapStatus(event.status?.type?.name),
+      stage:    stageValue,
+      round:    event.week?.number || null,
+      homeTeam: { id: String(h.team.id), name: h.team.shortDisplayName || h.team.displayName },
+      awayTeam: { id: String(a.team.id), name: a.team.shortDisplayName || a.team.displayName },
+      score: {
+        home: h.score != null ? Number(h.score) : null,
+        away: a.score != null ? Number(a.score) : null,
+      },
+      locked: false,
+    })
+    added++
+    count++
+    if (count === 490) { await batch.commit(); batch = writeBatch(db); count = 0 }
+  }
+  if (count > 0) await batch.commit()
+
+  // Mark stage as imported in tournament doc
+  if (added > 0) {
+    const updatedStages = (tData.stages || []).map((s) =>
+      s.value === stageValue ? { ...s, imported: true } : s
+    )
+    await updateDoc(tRef, { stages: updatedStages, updatedAt: serverTimestamp() })
+  }
+
+  return { added }
 }
