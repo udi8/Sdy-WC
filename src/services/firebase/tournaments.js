@@ -14,6 +14,12 @@ import {
   getTeamPlayers,
   getSeasonMatches,
 } from '../api/sportsDb'
+import {
+  fetchFDCompetition,
+  fetchFDTeams,
+  fetchFDMatches,
+  fetchFDLiveMatches,
+} from '../api/footballData'
 
 /**
  * Import a tournament from TheSportsDB into Firebase.
@@ -169,3 +175,143 @@ export const deactivateTournament = (tournamentId) =>
     status: 'finished',
     updatedAt: serverTimestamp(),
   })
+
+// ─── football-data.org import ─────────────────────────────────────────────────
+
+const fdMapStatus = (s) => {
+  if (!s) return 'scheduled'
+  const l = s.toLowerCase()
+  if (l === 'finished')                        return 'finished'
+  if (l === 'in_play' || l === 'paused')       return 'live'
+  if (l === 'postponed' || l === 'cancelled')  return 'postponed'
+  return 'scheduled'
+}
+
+/**
+ * Import a full tournament from football-data.org via Cloudflare Worker.
+ * Writes tournament doc + matches + players (from squad data) to Firestore.
+ * Requires VITE_FOOTBALL_DATA_WORKER_URL in .env.
+ *
+ * @param {string} competitionCode  e.g. 'WC', 'CL', 'PL'
+ * @param {string} season           e.g. '2026' or '2025'
+ * @returns {{ tournamentId, name, matchCount, playerCount }}
+ */
+export const importFromFootballData = async (competitionCode, season) => {
+  const code = competitionCode.trim().toUpperCase()
+
+  // 1. Competition metadata
+  const compData    = await fetchFDCompetition(code)
+  const tournamentId = String(compData.id)
+  const name        = compData.name
+  const emblem      = compData.emblem || null
+  const area        = compData.area?.name || null
+
+  // 2. Teams + squads (free tier: 10 req/min — add delay between calls)
+  const teamsData = await fetchFDTeams(code, season)
+  const teams     = teamsData.teams || []
+  await new Promise((r) => setTimeout(r, 600))
+
+  // 3. Matches
+  const matchesData = await fetchFDMatches(code, season)
+  const matches     = matchesData.matches || []
+
+  // ── Write tournament doc ──────────────────────────────────────────────────
+  await setDoc(doc(db, 'tournaments', tournamentId), {
+    id:              tournamentId,
+    name,
+    season,
+    emblem,
+    area,
+    sport:           'Soccer',
+    status:          'setup',
+    playerChunks:    [],
+    manualTeams:     [],
+    competitionCode: code,
+    createdAt:       serverTimestamp(),
+    updatedAt:       serverTimestamp(),
+  })
+
+  // ── Write matches ─────────────────────────────────────────────────────────
+  let batch = writeBatch(db)
+  let count = 0
+  for (const m of matches) {
+    const ref  = doc(db, 'tournaments', tournamentId, 'matches', String(m.id))
+    const home = { id: String(m.homeTeam.id), name: m.homeTeam.shortName || m.homeTeam.name }
+    const away = { id: String(m.awayTeam.id), name: m.awayTeam.shortName || m.awayTeam.name }
+    batch.set(ref, {
+      id:       String(m.id),
+      date:     m.utcDate ? m.utcDate.slice(0, 10) : null,
+      time:     m.utcDate ? m.utcDate.slice(11, 16) : null,
+      status:   fdMapStatus(m.status),
+      round:    m.matchday || null,
+      stage:    m.stage    || null,
+      group:    m.group    || null,
+      homeTeam: home,
+      awayTeam: away,
+      score: {
+        home: m.score?.fullTime?.home ?? null,
+        away: m.score?.fullTime?.away ?? null,
+      },
+      locked: false,
+    })
+    count++
+    if (count === 490) { await batch.commit(); batch = writeBatch(db); count = 0 }
+  }
+  if (count > 0) await batch.commit()
+
+  // ── Write players (from squad data) ──────────────────────────────────────
+  let playerCount = 0
+  for (const team of teams) {
+    const squad = team.squad || []
+    if (squad.length === 0) continue
+    let pb = writeBatch(db); let pc = 0
+    for (const p of squad) {
+      const ref = doc(db, 'tournaments', tournamentId, 'players', String(p.id))
+      pb.set(ref, {
+        id:          String(p.id),
+        name:        p.name        || '',
+        position:    p.position    || null,
+        nationality: p.nationality || null,
+        teamId:      String(team.id),
+        teamName:    team.shortName || team.name,
+      })
+      pc++; playerCount++
+      if (pc === 490) { await pb.commit(); pb = writeBatch(db); pc = 0 }
+    }
+    if (pc > 0) await pb.commit()
+  }
+
+  return { tournamentId, name, matchCount: matches.length, playerCount }
+}
+
+/**
+ * Refresh live match scores for a football-data.org–imported tournament.
+ * Only updates matches currently marked as LIVE by the API.
+ *
+ * @param {string} tournamentId      Firestore tournament doc ID (= competition id)
+ * @param {string} competitionCode   e.g. 'WC', 'CL'
+ * @returns {number} count of matches updated
+ */
+export const refreshLiveScores = async (tournamentId, competitionCode) => {
+  const data    = await fetchFDLiveMatches(competitionCode)
+  const matches = data.matches || []
+  if (matches.length === 0) return 0
+
+  let batch = writeBatch(db)
+  let count = 0
+  for (const m of matches) {
+    const ref = doc(db, 'tournaments', tournamentId, 'matches', String(m.id))
+    batch.update(ref, {
+      status:       fdMapStatus(m.status),
+      'score.home': m.score?.fullTime?.home ?? m.score?.halfTime?.home ?? null,
+      'score.away': m.score?.fullTime?.away ?? m.score?.halfTime?.away ?? null,
+      updatedAt:    serverTimestamp(),
+    })
+    count++
+    if (count === 490) { await batch.commit(); batch = writeBatch(db); count = 0 }
+  }
+  if (count > 0) await batch.commit()
+  return matches.length
+}
+
+export { TOTAL_PLAYER_CHUNKS }

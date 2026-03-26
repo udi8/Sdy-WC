@@ -3,7 +3,7 @@ import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
 import { db } from '../services/firebase/config'
 import { getLeague } from '../services/api/sportsDb'
 import { POPULAR_LEAGUES } from '../data/leagues'
-import { importTournament, activateTournament, deactivateTournament, deleteTournament } from '../services/firebase/tournaments'
+import { importTournament, importTournamentPlayers, addManualTeams, activateTournament, deactivateTournament, deleteTournament, importFromFootballData, TOTAL_PLAYER_CHUNKS } from '../services/firebase/tournaments'
 import { toast } from 'react-toastify'
 import './AdminTournamentPage.css'
 
@@ -23,6 +23,10 @@ const AdminTournamentPage = () => {
   const [deletingId, setDeletingId]   = useState(null)
   const [importProgress, setImportProgress] = useState('')
   const [tournaments, setTournaments] = useState([])
+  const [fdCode, setFdCode]           = useState('')
+  const [fdSeason, setFdSeason]       = useState('2026')
+  const [fdImporting, setFdImporting] = useState(false)
+  const [fdProgress, setFdProgress]   = useState('')
 
   useEffect(() => {
     const q = query(collection(db, 'tournaments'), orderBy('createdAt', 'desc'))
@@ -121,6 +125,28 @@ const AdminTournamentPage = () => {
       toast.error('שגיאה במחיקה: ' + err.message)
     } finally {
       setDeletingId(null)
+    }
+  }
+
+  const handleFDImport = async () => {
+    const code = fdCode.trim().toUpperCase()
+    if (!code)          { toast.error('יש להזין קוד תחרות'); return }
+    if (!fdSeason.trim()) { toast.error('יש להזין עונה'); return }
+    if (!window.confirm(`לייבא "${code}" עונת ${fdSeason} מ-football-data.org?`)) return
+
+    setFdImporting(true)
+    setFdProgress(`מייבא "${code}" עונת ${fdSeason}...`)
+    try {
+      const result = await importFromFootballData(code, fdSeason)
+      setFdCode('')
+      setFdProgress('')
+      toast.success(`✅ "${result.name}" יובא (${result.matchCount} משחקים, ${result.playerCount} שחקנים)`)
+    } catch (err) {
+      console.error(err)
+      toast.error('שגיאה: ' + err.message)
+      setFdProgress('')
+    } finally {
+      setFdImporting(false)
     }
   }
 
@@ -246,6 +272,49 @@ const AdminTournamentPage = () => {
           <ul className="competition-list mt-1">
             <LeagueRow league={customResult} />
           </ul>
+        )}
+      </div>
+
+      {/* football-data.org import */}
+      <div className="tournament-search card">
+        <h3>ייבוא מ-football-data.org</h3>
+        <p className="text-muted" style={{ fontSize: '0.85rem', marginBottom: '0.75rem' }}>
+          ייבוא מלא — 48+ קבוצות, כל המשחקים, שחקנים. דורש{' '}
+          <strong>Cloudflare Worker</strong> עם API key (ראה <code>workers/football-proxy/</code>).
+          קודים: <code>WC</code> · <code>CL</code> · <code>PL</code> · <code>BL1</code> · <code>SA</code> · <code>FL1</code>
+        </p>
+        <div className="search-row">
+          <input
+            type="text"
+            className="form-control"
+            placeholder="קוד — WC / CL / PL"
+            value={fdCode}
+            onChange={(e) => setFdCode(e.target.value.toUpperCase())}
+            onKeyDown={(e) => e.key === 'Enter' && handleFDImport()}
+            disabled={fdImporting}
+            style={{ maxWidth: '160px' }}
+          />
+          <input
+            type="text"
+            className="form-control season-input"
+            placeholder="עונה — 2026"
+            value={fdSeason}
+            onChange={(e) => setFdSeason(e.target.value)}
+            disabled={fdImporting}
+          />
+          <button
+            className="btn btn-primary"
+            onClick={handleFDImport}
+            disabled={fdImporting || !fdCode.trim()}
+          >
+            {fdImporting ? '⏳' : '⬇️ ייבא'}
+          </button>
+        </div>
+        {fdProgress && (
+          <div className="import-progress mt-1">
+            <div className="import-spinner" />
+            <span>{fdProgress}</span>
+          </div>
         )}
       </div>
 
