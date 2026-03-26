@@ -445,10 +445,12 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
     dates.push(d.toISOString().slice(0, 10).replace(/-/g, ''))
   }
 
-  // Fetch all scoreboard weeks (teams derived from matches, not the teams endpoint)
-  const scoreboards = await Promise.all(
-    dates.map((dt) => fetchESPNScoreboard(sport, league, dt)),
-  )
+  // Fetch scoreboard weeks + teams endpoint in parallel
+  // Teams endpoint is fallback when no matches exist yet (future tournaments)
+  const [teamsData, ...scoreboards] = await Promise.all([
+    fetchESPNTeams(sport, league).catch(() => null),
+    ...dates.map((dt) => fetchESPNScoreboard(sport, league, dt)),
+  ])
 
   // Deduplicate events across weeks
   const eventsMap = {}
@@ -462,24 +464,29 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
     || `${sport}/${league}`
 
   // Build teams map from matches only — excludes qualifying-round teams
-  // that played before startDate and teams no longer in the tournament
+  // Placeholder competitors (e.g. "Group G Winner", "TBD") are skipped
+  const PLACEHOLDER = /winner|loser|runner.?up|tbd|^\d+$/i
+  const isRealTeam  = (t) => t?.id && !PLACEHOLDER.test(t.displayName || '') && !PLACEHOLDER.test(t.shortDisplayName || '')
+
   const teamsMap = new Map()
   for (const event of events) {
     const comp = event.competitions?.[0]
     if (!comp) continue
     const [h, a] = comp.competitors || []
-    if (h?.team?.id) teamsMap.set(String(h.team.id), {
+    if (isRealTeam(h?.team)) teamsMap.set(String(h.team.id), {
       id: String(h.team.id),
       shortDisplayName: h.team.shortDisplayName,
       displayName: h.team.displayName,
     })
-    if (a?.team?.id) teamsMap.set(String(a.team.id), {
+    if (isRealTeam(a?.team)) teamsMap.set(String(a.team.id), {
       id: String(a.team.id),
       shortDisplayName: a.team.shortDisplayName,
       displayName: a.team.displayName,
     })
   }
-  const teamsList = Array.from(teamsMap.values())
+  // If no real teams found in matches (tournament hasn't started yet), fall back to teams endpoint
+  const fallbackTeams = teamsData?.sports?.[0]?.leagues?.[0]?.teams?.map((t) => t.team) || []
+  const teamsList = teamsMap.size > 0 ? Array.from(teamsMap.values()) : fallbackTeams
 
   // Write tournament doc
   await setDoc(doc(db, 'tournaments', tournamentId), {
@@ -502,6 +509,7 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
     if (!comp) continue
     const [h, a] = comp.competitors || []
     if (!h || !a) continue
+    if (!isRealTeam(h.team) || !isRealTeam(a.team)) continue   // skip TBD/placeholder matches
     const ref = doc(db, 'tournaments', tournamentId, 'matches', String(event.id))
     batch.set(ref, {
       id:       String(event.id),
@@ -534,7 +542,8 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
       }))
     )
     for (let j = 0; j < slice.length; j++) {
-      const athletes = rosters[j]?.athletes || []
+      const rosterData = rosters[j]
+      const athletes   = rosterData?.team?.athletes || rosterData?.athletes || []
       if (athletes.length === 0) continue
       const team = slice[j]
       let pb = writeBatch(db); let pc = 0
