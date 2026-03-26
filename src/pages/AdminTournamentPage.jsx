@@ -310,7 +310,10 @@ const AdminTournamentPage = () => {
 
       {/* Popular list with search */}
       <div className="tournament-search card">
-        <h3>בחר ליגה או תחרות</h3>
+        <div className="search-header">
+          <h3>בחר ליגה או תחרות</h3>
+          <button className="btn btn-ghost btn-sm" onClick={() => window.location.reload()} title="רענן דף">🔄 רענן</button>
+        </div>
         <input
           type="text"
           className="form-control"

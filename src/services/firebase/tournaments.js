@@ -443,7 +443,8 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
   // ── 1. Fetch base scoreboard (no date) to discover league name + calendar stages ──
   const baseSb = await fetchESPNScoreboard(sport, league, null).catch(() => ({}))
   const calEntries = baseSb.leagues?.[0]?.calendar?.[0]?.entries || []
-  const name = baseSb.leagues?.[0]?.name || `${sport}/${league}`
+  const name   = baseSb.leagues?.[0]?.name || `${sport}/${league}`
+  const emblem = baseSb.leagues?.[0]?.logos?.[0]?.href || null
 
   // ── 2. Decide fetch strategy ──────────────────────────────────────────────────
   // Tournament mode: ESPN provides stage entries with date ranges (WC, CL, etc.)
@@ -519,6 +520,7 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
   await setDoc(doc(db, 'tournaments', tournamentId), {
     id:           tournamentId,
     name,
+    emblem,
     season:       startDate.slice(0, 4),
     sport,
     espnLeague:   league,
@@ -797,11 +799,17 @@ export const syncTeamBadges = async (tournamentId) => {
   if (!espnLeague) throw new Error('אין ESPN ליגה משויכת לטורניר')
 
   const teamsData = await fetchESPNTeams(sport || 'soccer', espnLeague)
+  const leagueEmblem = teamsData?.sports?.[0]?.leagues?.[0]?.logos?.[0]?.href || null
   const logoMap = {}
   for (const t of (teamsData?.sports?.[0]?.leagues?.[0]?.teams || [])) {
     if (t.team?.id) logoMap[String(t.team.id)] = t.team.logos?.[0]?.href || ''
   }
   if (Object.keys(logoMap).length === 0) throw new Error('לא נמצאו לוגואים מ-ESPN')
+
+  // Also update the tournament doc's emblem if we now have one
+  if (leagueEmblem) {
+    await updateDoc(doc(db, 'tournaments', tournamentId), { emblem: leagueEmblem })
+  }
 
   const matchesSnap = await getDocs(collection(db, 'tournaments', tournamentId, 'matches'))
   let batch = writeBatch(db)
