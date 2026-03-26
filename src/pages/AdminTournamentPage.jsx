@@ -6,7 +6,7 @@ import { POPULAR_LEAGUES } from '../data/leagues'
 import { importTournament, importTournamentPlayers, addManualTeams, activateTournament, deactivateTournament, deleteTournament, importFromFootballData, importFromESPN, TOTAL_PLAYER_CHUNKS } from '../services/firebase/tournaments'
 import { toast } from 'react-toastify'
 import './AdminTournamentPage.css'
-import { seasonToEndDate } from '../utils/season'
+import { seasonToEndDate, seasonToStartDate } from '../utils/season'
 
 const defaultSeason = () => {
   const y = new Date().getFullYear()
@@ -126,13 +126,12 @@ const AdminTournamentPage = () => {
   }
 
   const handleESPNImportForLeague = async (league) => {
-    const season   = getSeason(league.id)
-    const fromDate = getFromDate(league.id).trim()
-    const endDate  = seasonToEndDate(season)
+    const season    = getSeason(league.id)
+    const startDate = getFromDate(league.id).trim() || seasonToStartDate(season)
+    const endDate   = seasonToEndDate(season)
 
-    if (!fromDate) { toast.error('יש להזין תאריך התחלה לייבוא ESPN'); return }
-    if (!endDate)  { toast.error('יש להזין עונה'); return }
-    if (!window.confirm(`לייבא "${league.name}" עונת ${season} מ-ESPN (${fromDate} → ${endDate})?`)) return
+    if (!endDate) { toast.error('יש להזין עונה'); return }
+    if (!window.confirm(`לייבא "${league.name}" עונת ${season} מ-ESPN (${startDate} → ${endDate})?`)) return
 
     setEspnImportingId(league.id)
     setImportingId(league.id)
@@ -141,7 +140,7 @@ const AdminTournamentPage = () => {
       const result = await importFromESPN(
         league.espnSport,
         league.espnId,
-        fromDate,
+        startDate,
         endDate,
       )
       setImportProgress('')
@@ -261,14 +260,16 @@ const AdminTournamentPage = () => {
           placeholder="עונה"
           disabled={!!importingId}
         />
-        <input
-          type="date"
-          className="form-control season-input"
-          value={getFromDate(league.id)}
-          onChange={(e) => setFromDate(league.id, e.target.value)}
-          title="תאריך התחלה — גם משמש כתאריך התחלה לייבוא ESPN"
-          disabled={!!importingId}
-        />
+        {league.espnId && (
+          <input
+            type="date"
+            className="form-control season-input"
+            value={getFromDate(league.id)}
+            onChange={(e) => setFromDate(league.id, e.target.value)}
+            title="תאריך התחלה (אופציונלי — ברירת מחדל: תחילת העונה)"
+            disabled={!!importingId}
+          />
+        )}
         {league.espnId ? (
           <button
             className="btn btn-primary"
@@ -405,11 +406,13 @@ const AdminTournamentPage = () => {
         )}
       </div>
 
-      {/* ESPN import */}
-      <div className="tournament-search card">
-        <h3>ייבוא מ-ESPN <span className="badge badge-muted">ללא API Key</span></h3>
-        <p className="text-muted caption-text">
-          סקר שבועי של לוח התוצאות — 139 ליגות, ללא הגדרות נוספות
+      {/* ESPN manual import — advanced, collapsed by default */}
+      <details className="tournament-search card">
+        <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
+          ייבוא ידני מ-ESPN <span className="badge badge-muted">מתקדם</span>
+        </summary>
+        <p className="text-muted caption-text" style={{ marginTop: '0.5rem' }}>
+          לייבוא ליגות שאינן ברשימה. קוד הליגה: <code>eng.1</code> / <code>isr.1</code> / <code>fifa.world</code>
         </p>
         <div className="search-row">
           <input
@@ -421,7 +424,7 @@ const AdminTournamentPage = () => {
           />
           <input
             className="form-control season-input"
-            placeholder="ליגה: eng.1 / isr.1 / fifa.world"
+            placeholder="קוד ליגה: eng.1 / isr.1"
             value={espnLeague}
             onChange={(e) => setEspnLeague(e.target.value)}
             disabled={espnImporting}
@@ -446,7 +449,7 @@ const AdminTournamentPage = () => {
             <span>{espnProgress}</span>
           </div>
         )}
-      </div>
+      </details>
 
       {/* Existing tournaments */}
       {tournaments.length > 0 && (
