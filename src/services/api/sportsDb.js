@@ -12,8 +12,12 @@ const get = async (path) => {
 export const searchLeagues = (name) =>
   get(`/search_all_leagues.php?l=${encodeURIComponent(name)}`)
 
-// Get all leagues (for browse)
+// Get all leagues (free tier limited — use getLeaguesBySport instead)
 export const getAllLeagues = () => get('/all_leagues.php')
+
+// Get all leagues in a sport — works on free tier
+export const getLeaguesBySport = (sport) =>
+  get(`/search_all_leagues.php?s=${encodeURIComponent(sport)}`)
 
 // Get league details by ID
 export const getLeague = (id) => get(`/lookupleague.php?id=${id}`)

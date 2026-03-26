@@ -1,3 +1,28 @@
+.search-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.search-header h3 {
+  margin-bottom: 0;
+}
+
+.btn-sm {
+  padding: 0.3rem 0.75rem;
+  font-size: 0.85rem;
+  min-height: 34px;
+}
+
+.empty-leagues {
+  padding: 1.5rem 0;
+  text-align: center;
+}
+
+.mb-1 { margin-bottom: 0.75rem; }
+.mt-1 { margin-top: 0.75rem; }
+
 .admin-tournament-page h2 {
   color: var(--color-primary);
   margin-bottom: 1.5rem;
@@ -16,13 +41,34 @@
 
 .search-row {
   display: flex;
+  gap: 0.5rem;
   align-items: center;
-  gap: 0.75rem;
 }
 
-.search-loading {
+.search-row .form-control {
+  flex: 1;
+}
+
+.search-row .btn {
   white-space: nowrap;
-  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
+.mt-1 { margin-top: 0.75rem; }
+
+/* Competition actions (season input + import button) */
+.competition-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.season-input {
+  width: 110px;
+  font-size: 0.85rem;
+  padding: 0.35rem 0.5rem;
+  text-align: center;
 }
 
 /* Competition results */
@@ -171,8 +217,16 @@
     align-items: flex-start;
   }
 
-  .competition-item .btn {
+  .competition-actions {
     width: 100%;
+  }
+
+  .season-input {
+    flex: 1;
+  }
+
+  .competition-actions .btn {
+    white-space: nowrap;
   }
 
   .tournament-row {

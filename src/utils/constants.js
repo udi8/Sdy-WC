@@ -70,5 +70,4 @@ export const STATIC_POINTS = {
   YELLOW_CARDS_NEAR: 8,   // ±10
   RED_CARDS_EXACT: 20,
   RED_CARDS_NEAR: 8,      // ±3
-  HEART_TEAM_WIN: 5,      // per win
 }

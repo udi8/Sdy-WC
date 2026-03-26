@@ -106,7 +106,7 @@ const MyBetsPage = () => {
     if (!activeTournament) { setDataLoading(false); return }
     setDataLoading(true)
     Promise.all([
-      getTournamentTeams(activeTournament.id),
+      getTournamentTeams(activeTournament.id, activeTournament.fromDate || null),
       getTournamentPlayers(activeTournament.id),
       getStaticBet(userProfile.uid, activeTournament.id),
     ]).then(([t, p, existing]) => {
