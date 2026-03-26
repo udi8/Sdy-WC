@@ -445,13 +445,10 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
     dates.push(d.toISOString().slice(0, 10).replace(/-/g, ''))
   }
 
-  // Fetch teams + all scoreboard weeks in parallel
-  const [teamsData, ...scoreboards] = await Promise.all([
-    fetchESPNTeams(sport, league),
-    ...dates.map((dt) => fetchESPNScoreboard(sport, league, dt)),
-  ])
-  const teamsList = teamsData.sports?.[0]?.leagues?.[0]?.teams?.map((t) => t.team) || []
-  const name      = teamsData.sports?.[0]?.leagues?.[0]?.name || `${sport}/${league}`
+  // Fetch all scoreboard weeks (teams derived from matches, not the teams endpoint)
+  const scoreboards = await Promise.all(
+    dates.map((dt) => fetchESPNScoreboard(sport, league, dt)),
+  )
 
   // Deduplicate events across weeks
   const eventsMap = {}
@@ -459,6 +456,30 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
     for (const event of (sb.events || [])) eventsMap[event.id] = event
   }
   const events = Object.values(eventsMap)
+
+  // Derive league name from first scoreboard that has it
+  const name = scoreboards.find((sb) => sb.leagues?.[0]?.name)?.leagues?.[0]?.name
+    || `${sport}/${league}`
+
+  // Build teams map from matches only — excludes qualifying-round teams
+  // that played before startDate and teams no longer in the tournament
+  const teamsMap = new Map()
+  for (const event of events) {
+    const comp = event.competitions?.[0]
+    if (!comp) continue
+    const [h, a] = comp.competitors || []
+    if (h?.team?.id) teamsMap.set(String(h.team.id), {
+      id: String(h.team.id),
+      shortDisplayName: h.team.shortDisplayName,
+      displayName: h.team.displayName,
+    })
+    if (a?.team?.id) teamsMap.set(String(a.team.id), {
+      id: String(a.team.id),
+      shortDisplayName: a.team.shortDisplayName,
+      displayName: a.team.displayName,
+    })
+  }
+  const teamsList = Array.from(teamsMap.values())
 
   // Write tournament doc
   await setDoc(doc(db, 'tournaments', tournamentId), {
@@ -501,7 +522,7 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
   }
   if (count > 0) await batch.commit()
 
-  // Fetch all rosters in parallel (throttled: 5 at a time)
+  // Fetch rosters only for teams that appear in matches
   const CONCURRENCY = 5
   let playerCount = 0
   for (let i = 0; i < teamsList.length; i += CONCURRENCY) {
@@ -525,7 +546,7 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
           position:    a.position?.abbreviation || a.position?.displayName || null,
           nationality: a.citizenship || null,
           teamId:      String(team.id),
-          teamName:    team.shortDisplayName || team.displayName || team.name,
+          teamName:    team.shortDisplayName || team.displayName || '',
         })
         pc++; playerCount++
         if (pc === 490) { await pb.commit(); pb = writeBatch(db); pc = 0 }

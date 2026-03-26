@@ -127,7 +127,7 @@ const AdminTournamentPage = () => {
 
   const handleESPNImportForLeague = async (league) => {
     const season    = getSeason(league.id)
-    const startDate = getFromDate(league.id).trim() || seasonToStartDate(season)
+    const startDate = getFromDate(league.id).trim() || new Date().toISOString().slice(0, 10)
     const endDate   = seasonToEndDate(season)
 
     if (!endDate) { toast.error('יש להזין עונה'); return }
@@ -266,7 +266,7 @@ const AdminTournamentPage = () => {
             className="form-control season-input"
             value={getFromDate(league.id)}
             onChange={(e) => setFromDate(league.id, e.target.value)}
-            title="תאריך התחלה (אופציונלי — ברירת מחדל: תחילת העונה)"
+            title="תאריך התחלה (אופציונלי — ברירת מחדל: היום)"
             disabled={!!importingId}
           />
         )}
