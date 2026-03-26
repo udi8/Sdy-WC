@@ -6,16 +6,19 @@ const TournamentContext = createContext(null)
 
 export const TournamentProvider = ({ children }) => {
   const [activeTournament, setActiveTournament] = useState(null)
+  const [activeTournaments, setActiveTournaments] = useState([])
   const [tournaments, setTournaments] = useState([])
   const [loading, setLoading] = useState(true)
 
-  // Listen for all tournaments, pick the active one
+  // Listen for all tournaments, pick the active one(s)
   useEffect(() => {
     const q = query(collection(db, 'tournaments'), orderBy('createdAt', 'desc'), limit(20))
     const unsub = onSnapshot(q, (snap) => {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
       setTournaments(list)
-      const active = list.find((t) => t.status === 'active') || list[0] || null
+      const actives = list.filter((t) => t.status === 'active')
+      setActiveTournaments(actives)
+      const active = actives[0] || list[0] || null
       setActiveTournament(active)
       setLoading(false)
     })
@@ -23,7 +26,7 @@ export const TournamentProvider = ({ children }) => {
   }, [])
 
   return (
-    <TournamentContext.Provider value={{ activeTournament, tournaments, loading }}>
+    <TournamentContext.Provider value={{ activeTournament, activeTournaments, tournaments, loading }}>
       {children}
     </TournamentContext.Provider>
   )

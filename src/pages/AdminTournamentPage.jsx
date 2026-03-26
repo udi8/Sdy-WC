@@ -3,7 +3,7 @@ import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
 import { db } from '../services/firebase/config'
 import { getLeague } from '../services/api/sportsDb'
 import { POPULAR_LEAGUES } from '../data/leagues'
-import { importTournament, importTournamentPlayers, addManualTeams, activateTournament, deactivateTournament, deleteTournament, importFromFootballData, importFromESPN, TOTAL_PLAYER_CHUNKS } from '../services/firebase/tournaments'
+import { importTournament, addManualTeams, activateTournament, deactivateTournament, deleteTournament, importFromFootballData, importFromESPN } from '../services/firebase/tournaments'
 import { toast } from 'react-toastify'
 import './AdminTournamentPage.css'
 import { seasonToEndDate, seasonToStartDate } from '../utils/season'
@@ -21,7 +21,6 @@ const AdminTournamentPage = () => {
   const [seasons, setSeasons]         = useState({})
   const [fromDates, setFromDates]     = useState({})
   const [importingId, setImportingId]     = useState(null)
-  const [importingPlayers, setImportingPlayers] = useState(null) // '{id}-AL' or '{id}-MZ'
   const [deletingId, setDeletingId]       = useState(null)
   const [importProgress, setImportProgress] = useState('')
   const [tournaments, setTournaments] = useState([])
@@ -152,19 +151,6 @@ const AdminTournamentPage = () => {
     } finally {
       setEspnImportingId(null)
       setImportingId(null)
-    }
-  }
-
-  const handleImportPlayers = async (t, chunkNum) => {
-    const key = `${t.id}-${chunkNum}`
-    setImportingPlayers(key)
-    try {
-      const count = await importTournamentPlayers(t.id, chunkNum)
-      toast.success(`✅ ייבוא ${chunkNum}/${TOTAL_PLAYER_CHUNKS} הושלם (${count} קבוצות)`)
-    } catch (err) {
-      toast.error('שגיאה בייבוא שחקנים: ' + err.message)
-    } finally {
-      setImportingPlayers(null)
     }
   }
 
@@ -474,21 +460,6 @@ const AdminTournamentPage = () => {
                   {t.status === 'active' && (
                     <button className="btn btn-outline" onClick={() => handleDeactivate(t)}>⏹️ סיים</button>
                   )}
-                  {Array.from({ length: TOTAL_PLAYER_CHUNKS }, (_, i) => i + 1).map((n) => {
-                    const done = (t.playerChunks || []).includes(n)
-                    const busy = importingPlayers === `${t.id}-${n}`
-                    return (
-                      <button
-                        key={n}
-                        className={`btn ${done ? 'btn-ghost' : 'btn-secondary'}`}
-                        onClick={() => !done && handleImportPlayers(t, n)}
-                        disabled={!!importingPlayers || done}
-                        title={`ייבא שחקנים — קבוצה ${n}/${TOTAL_PLAYER_CHUNKS}`}
-                      >
-                        {busy ? '⏳' : done ? `✅${n}` : `👤${n}`}
-                      </button>
-                    )
-                  })}
                   <button
                     className="btn btn-danger"
                     onClick={() => handleDelete(t)}

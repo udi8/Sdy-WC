@@ -544,8 +544,8 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
       status:   espnMapStatus(event.status?.type?.name),
       stage:    stageValue,
       round:    event.week?.number || null,
-      homeTeam: { id: String(h.team.id), name: h.team.shortDisplayName || h.team.displayName },
-      awayTeam: { id: String(a.team.id), name: a.team.shortDisplayName || a.team.displayName },
+      homeTeam: { id: String(h.team.id), name: h.team.shortDisplayName || h.team.displayName, badge: h.team.logos?.[0]?.href || '' },
+      awayTeam: { id: String(a.team.id), name: a.team.shortDisplayName || a.team.displayName, badge: a.team.logos?.[0]?.href || '' },
       score: {
         home: h.score != null ? Number(h.score) : null,
         away: a.score != null ? Number(a.score) : null,
@@ -651,8 +651,8 @@ export const refreshTournamentStage = async (tournamentId, stageValue) => {
       status:   espnMapStatus(event.status?.type?.name),
       stage:    stageValue,
       round:    event.week?.number || null,
-      homeTeam: { id: String(h.team.id), name: h.team.shortDisplayName || h.team.displayName },
-      awayTeam: { id: String(a.team.id), name: a.team.shortDisplayName || a.team.displayName },
+      homeTeam: { id: String(h.team.id), name: h.team.shortDisplayName || h.team.displayName, badge: h.team.logos?.[0]?.href || '' },
+      awayTeam: { id: String(a.team.id), name: a.team.shortDisplayName || a.team.displayName, badge: a.team.logos?.[0]?.href || '' },
       score: {
         home: h.score != null ? Number(h.score) : null,
         away: a.score != null ? Number(a.score) : null,

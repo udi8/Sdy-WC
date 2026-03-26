@@ -52,7 +52,8 @@ const SearchSelect = ({ value, onChange, options, placeholder, disabled }) => {
         onClick={() => !disabled && setOpen((o) => !o)}
         disabled={disabled}
       >
-        <span className={selected ? '' : 'ss-placeholder'}>
+        <span className={`ss-value${selected ? '' : ' ss-placeholder'}`}>
+          {selected?.badge && <img src={selected.badge} alt="" className="ss-badge" />}
           {selected ? selected.label : placeholder}
         </span>
         <span className="ss-arrow">{open ? '▲' : '▼'}</span>
@@ -81,6 +82,7 @@ const SearchSelect = ({ value, onChange, options, placeholder, disabled }) => {
                 className={`ss-item${o.id === value ? ' ss-selected' : ''}`}
                 onMouseDown={() => select(o.id)}
               >
+                {o.badge && <img src={o.badge} alt="" className="ss-badge" />}
                 {o.label}
               </li>
             ))}
@@ -93,18 +95,31 @@ const SearchSelect = ({ value, onChange, options, placeholder, disabled }) => {
 
 const MyBetsPage = () => {
   const { userProfile } = useAuth()
-  const { activeTournament, loading: tLoading } = useTournament()
+  const { activeTournaments, loading: tLoading } = useTournament()
 
-  const [teams, setTeams]         = useState([])
-  const [players, setPlayers]     = useState([])
-  const [form, setForm]           = useState(EMPTY)
-  const [locked, setLocked]       = useState(false)
-  const [saving, setSaving]       = useState(false)
+  const [selectedId, setSelectedId]   = useState(null)
+  const [teams, setTeams]             = useState([])
+  const [players, setPlayers]         = useState([])
+  const [form, setForm]               = useState(EMPTY)
+  const [locked, setLocked]           = useState(false)
+  const [saving, setSaving]           = useState(false)
   const [dataLoading, setDataLoading] = useState(true)
+
+  // When activeTournaments loads/changes, default to first if nothing selected
+  useEffect(() => {
+    if (activeTournaments.length === 0) return
+    setSelectedId((prev) => {
+      if (prev && activeTournaments.some((t) => t.id === prev)) return prev
+      return activeTournaments[0].id
+    })
+  }, [activeTournaments])
+
+  const activeTournament = activeTournaments.find((t) => t.id === selectedId) || null
 
   useEffect(() => {
     if (!activeTournament) { setDataLoading(false); return }
     setDataLoading(true)
+    setForm(EMPTY)
     Promise.all([
       getTournamentTeams(activeTournament.id, activeTournament.fromDate || null),
       getTournamentPlayers(activeTournament.id),
@@ -123,10 +138,12 @@ const MyBetsPage = () => {
           redCards:    existing.redCards    != null ? String(existing.redCards)    : '',
         })
         setLocked(existing.locked === true)
+      } else {
+        setLocked(false)
       }
     }).catch((err) => toast.error('שגיאה בטעינה: ' + err.message))
       .finally(() => setDataLoading(false))
-  }, [activeTournament, userProfile.uid])
+  }, [activeTournament?.id, userProfile.uid])
 
   const set = (field, value) => setForm((f) => ({ ...f, [field]: value }))
 
@@ -152,10 +169,10 @@ const MyBetsPage = () => {
     }
   }
 
-  if (tLoading || dataLoading)
+  if (tLoading || (dataLoading && !activeTournament))
     return <div className="card"><p className="text-muted">טוען...</p></div>
 
-  if (!activeTournament)
+  if (activeTournaments.length === 0)
     return (
       <div className="card">
         <h2>🎯 הניחושים שלי</h2>
@@ -163,7 +180,7 @@ const MyBetsPage = () => {
       </div>
     )
 
-  const teamOptions   = teams.map((t)   => ({ id: t.id, label: t.name }))
+  const teamOptions   = teams.map((t)   => ({ id: t.id, label: t.name, badge: t.badge || '' }))
   const playerOptions = players.map((p) => ({
     id: p.id,
     label: p.name + (p.teamName ? ` · ${p.teamName}` : ''),
@@ -185,9 +202,27 @@ const MyBetsPage = () => {
   return (
     <div className="my-bets-page">
       <h2>🎯 הניחושים שלי</h2>
-      <p className="text-muted tournament-season">
-        {activeTournament.name} · עונה {activeTournament.season}
-      </p>
+
+      {activeTournaments.length > 1 && (
+        <div className="tournament-tabs">
+          {activeTournaments.map((t) => (
+            <button
+              key={t.id}
+              className={`tournament-tab${t.id === selectedId ? ' tournament-tab-active' : ''}`}
+              onClick={() => setSelectedId(t.id)}
+            >
+              {t.emblem && <img src={t.emblem} alt="" className="tab-emblem" />}
+              {t.name}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {activeTournament && (
+        <p className="text-muted tournament-season">
+          {activeTournament.name} · עונה {activeTournament.season}
+        </p>
+      )}
 
       {locked && (
         <div className="locked-banner">
