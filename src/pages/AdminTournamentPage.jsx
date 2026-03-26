@@ -3,7 +3,7 @@ import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
 import { db } from '../services/firebase/config'
 import { getLeague } from '../services/api/sportsDb'
 import { POPULAR_LEAGUES } from '../data/leagues'
-import { importTournament, addManualTeams, activateTournament, deactivateTournament, deleteTournament, importFromFootballData, importFromESPN } from '../services/firebase/tournaments'
+import { importTournament, addManualTeams, activateTournament, deactivateTournament, deleteTournament, importFromFootballData, importFromESPN, syncTournamentMatches, syncTeamBadges } from '../services/firebase/tournaments'
 import { toast } from 'react-toastify'
 import './AdminTournamentPage.css'
 import { seasonToEndDate, seasonToStartDate } from '../utils/season'
@@ -22,6 +22,8 @@ const AdminTournamentPage = () => {
   const [fromDates, setFromDates]     = useState({})
   const [importingId, setImportingId]     = useState(null)
   const [deletingId, setDeletingId]       = useState(null)
+  const [syncingMatchesId, setSyncingMatchesId] = useState(null)
+  const [syncingBadgesId, setSyncingBadgesId]   = useState(null)
   const [importProgress, setImportProgress] = useState('')
   const [tournaments, setTournaments] = useState([])
   const [fdCode, setFdCode]           = useState('')
@@ -151,6 +153,30 @@ const AdminTournamentPage = () => {
     } finally {
       setEspnImportingId(null)
       setImportingId(null)
+    }
+  }
+
+  const handleSyncMatches = async (t) => {
+    setSyncingMatchesId(t.id)
+    try {
+      const added = await syncTournamentMatches(t.id)
+      toast.success(`✅ סנכרון הושלם — ${added} משחקים חדשים נוספו`)
+    } catch (err) {
+      toast.error('שגיאה בסנכרון: ' + err.message)
+    } finally {
+      setSyncingMatchesId(null)
+    }
+  }
+
+  const handleSyncBadges = async (t) => {
+    setSyncingBadgesId(t.id)
+    try {
+      const updated = await syncTeamBadges(t.id)
+      toast.success(`✅ לוגואים עודכנו — ${updated} משחקים`)
+    } catch (err) {
+      toast.error('שגיאה בעדכון לוגואים: ' + err.message)
+    } finally {
+      setSyncingBadgesId(null)
     }
   }
 
@@ -440,7 +466,16 @@ const AdminTournamentPage = () => {
       {/* Existing tournaments */}
       {tournaments.length > 0 && (
         <div className="tournaments-list">
-          <h3>טורנירים קיימים</h3>
+          <div className="tournaments-list-header">
+            <h3>טורנירים קיימים</h3>
+            <button
+              className="btn btn-ghost"
+              onClick={() => window.location.reload()}
+              title="רענן רשימה"
+            >
+              🔄 רענן
+            </button>
+          </div>
           {tournaments.map((t) => {
             const s = statusLabel[t.status] || { text: t.status, cls: 'badge-muted' }
             return (
@@ -459,6 +494,26 @@ const AdminTournamentPage = () => {
                   )}
                   {t.status === 'active' && (
                     <button className="btn btn-outline" onClick={() => handleDeactivate(t)}>⏹️ סיים</button>
+                  )}
+                  {t.espnLeague && (
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => handleSyncMatches(t)}
+                      disabled={!!syncingMatchesId || !!syncingBadgesId}
+                      title="סנכרן משחקים חדשים מ-ESPN"
+                    >
+                      {syncingMatchesId === t.id ? '⏳' : '🔄 משחקים'}
+                    </button>
+                  )}
+                  {t.espnLeague && (
+                    <button
+                      className="btn btn-ghost"
+                      onClick={() => handleSyncBadges(t)}
+                      disabled={!!syncingMatchesId || !!syncingBadgesId}
+                      title="עדכן לוגואים/דגלים מ-ESPN"
+                    >
+                      {syncingBadgesId === t.id ? '⏳' : '🖼️ לוגואים'}
+                    </button>
                   )}
                   <button
                     className="btn btn-danger"

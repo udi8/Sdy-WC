@@ -481,9 +481,17 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
   const PLACEHOLDER = /winner|loser|runner.?up|tbd|playoff|qualifier|intercontinental|\bic\b|\bgroup\b|^\s*[\d\s]+\s*$/i
   const isRealTeam  = (t) => t?.id && !PLACEHOLDER.test(t.displayName || '') && !PLACEHOLDER.test(t.shortDisplayName || '')
 
-  // ── 4. Build teams list ───────────────────────────────────────────────────────
+  // ── 4. Build teams list + logo map ───────────────────────────────────────────
+  // Logos only come from the ESPN teams endpoint (not from scoreboard competitors).
   // Tournament: extract from group stage matches → only confirmed qualified teams, no qualifiers
   // League:     use ESPN teams endpoint (comprehensive for ongoing seasons)
+  const teamsData = await fetchESPNTeams(sport, league).catch(() => null)
+  const espnTeamsList = teamsData?.sports?.[0]?.leagues?.[0]?.teams?.map((t) => t.team) || []
+  const logoMap = {}
+  for (const t of espnTeamsList) {
+    if (t?.id) logoMap[String(t.id)] = t.logos?.[0]?.href || ''
+  }
+
   let teamsList
   if (isTournament) {
     const matchTeamsMap = new Map()
@@ -496,9 +504,7 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
     }
     teamsList = Array.from(matchTeamsMap.values())
   } else {
-    const teamsData = await fetchESPNTeams(sport, league).catch(() => null)
-    teamsList = (teamsData?.sports?.[0]?.leagues?.[0]?.teams?.map((t) => t.team) || [])
-      .filter(isRealTeam)
+    teamsList = espnTeamsList.filter(isRealTeam)
   }
 
   // ── 5. Write tournament doc ───────────────────────────────────────────────────
@@ -544,8 +550,8 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
       status:   espnMapStatus(event.status?.type?.name),
       stage:    stageValue,
       round:    event.week?.number || null,
-      homeTeam: { id: String(h.team.id), name: h.team.shortDisplayName || h.team.displayName, badge: h.team.logos?.[0]?.href || '' },
-      awayTeam: { id: String(a.team.id), name: a.team.shortDisplayName || a.team.displayName, badge: a.team.logos?.[0]?.href || '' },
+      homeTeam: { id: String(h.team.id), name: h.team.shortDisplayName || h.team.displayName, badge: logoMap[String(h.team.id)] || '' },
+      awayTeam: { id: String(a.team.id), name: a.team.shortDisplayName || a.team.displayName, badge: logoMap[String(a.team.id)] || '' },
       score: {
         home: h.score != null ? Number(h.score) : null,
         away: a.score != null ? Number(a.score) : null,
@@ -622,8 +628,16 @@ export const refreshTournamentStage = async (tournamentId, stageValue) => {
 
   const from = stage.startDate.slice(0, 10).replace(/-/g, '')
   const to   = stage.endDate.slice(0, 10).replace(/-/g, '')
-  const sb   = await fetchESPNDateRange(sport, league, from, to)
+  const [sb, teamsData] = await Promise.all([
+    fetchESPNDateRange(sport, league, from, to),
+    fetchESPNTeams(sport, league).catch(() => null),
+  ])
   const events = sb.events || []
+
+  const logoMap = {}
+  for (const t of (teamsData?.sports?.[0]?.leagues?.[0]?.teams || [])) {
+    if (t.team?.id) logoMap[String(t.team.id)] = t.team.logos?.[0]?.href || ''
+  }
 
   const PLACEHOLDER = /winner|loser|runner.?up|tbd|playoff|qualifier|intercontinental|\bic\b|\bgroup\b|^\s*[\d\s]+\s*$/i
   const isRealTeam  = (t) => t?.id && !PLACEHOLDER.test(t.displayName || '') && !PLACEHOLDER.test(t.shortDisplayName || '')
@@ -651,8 +665,8 @@ export const refreshTournamentStage = async (tournamentId, stageValue) => {
       status:   espnMapStatus(event.status?.type?.name),
       stage:    stageValue,
       round:    event.week?.number || null,
-      homeTeam: { id: String(h.team.id), name: h.team.shortDisplayName || h.team.displayName, badge: h.team.logos?.[0]?.href || '' },
-      awayTeam: { id: String(a.team.id), name: a.team.shortDisplayName || a.team.displayName, badge: a.team.logos?.[0]?.href || '' },
+      homeTeam: { id: String(h.team.id), name: h.team.shortDisplayName || h.team.displayName, badge: logoMap[String(h.team.id)] || '' },
+      awayTeam: { id: String(a.team.id), name: a.team.shortDisplayName || a.team.displayName, badge: logoMap[String(a.team.id)] || '' },
       score: {
         home: h.score != null ? Number(h.score) : null,
         away: a.score != null ? Number(a.score) : null,
@@ -674,4 +688,138 @@ export const refreshTournamentStage = async (tournamentId, stageValue) => {
   }
 
   return { added }
+}
+
+/**
+ * Syncs new matches for an active tournament from ESPN.
+ * For tournaments with stages: fetches all stages that have already started.
+ * For leagues: fetches the next 4 weeks from today.
+ * Only adds matches that don't already exist; skips placeholder teams.
+ *
+ * @param {string} tournamentId
+ * @returns {number} count of newly added matches
+ */
+export const syncTournamentMatches = async (tournamentId) => {
+  const tSnap = await getDoc(doc(db, 'tournaments', tournamentId))
+  if (!tSnap.exists()) throw new Error('Tournament not found')
+  const { sport, espnLeague, stages } = tSnap.data()
+  if (!sport || !espnLeague) throw new Error('Tournament missing sport/espnLeague')
+
+  const [teamsData] = await Promise.all([
+    fetchESPNTeams(sport, espnLeague).catch(() => null),
+  ])
+  const logoMap = {}
+  for (const t of (teamsData?.sports?.[0]?.leagues?.[0]?.teams || [])) {
+    if (t.team?.id) logoMap[String(t.team.id)] = t.team.logos?.[0]?.href || ''
+  }
+
+  const today = new Date()
+  const eventsMap = {}
+
+  if (stages && stages.length > 0) {
+    // Tournament: sync every stage that has already started
+    for (const stage of stages) {
+      if (!stage.startDate || !stage.endDate) continue
+      if (new Date(stage.startDate) > today) continue
+      const from = stage.startDate.slice(0, 10).replace(/-/g, '')
+      const to   = stage.endDate.slice(0, 10).replace(/-/g, '')
+      const sb = await fetchESPNDateRange(sport, espnLeague, from, to).catch(() => ({ events: [] }))
+      for (const e of (sb.events || [])) eventsMap[e.id] = { event: e, stageValue: stage.value }
+    }
+  } else {
+    // League: fetch the next 4 weeks from today
+    const dates = []
+    for (let d = new Date(today); dates.length < 4; d.setDate(d.getDate() + 7)) {
+      dates.push(d.toISOString().slice(0, 10).replace(/-/g, ''))
+    }
+    const scoreboards = await Promise.all(
+      dates.map((dt) => fetchESPNScoreboard(sport, espnLeague, dt).catch(() => ({ events: [] })))
+    )
+    for (const sb of scoreboards) {
+      for (const e of (sb.events || [])) eventsMap[e.id] = { event: e, stageValue: null }
+    }
+  }
+
+  const existingSnap = await getDocs(collection(db, 'tournaments', tournamentId, 'matches'))
+  const existingIds  = new Set(existingSnap.docs.map((d) => d.id))
+
+  const PLACEHOLDER = /winner|loser|runner.?up|tbd|playoff|qualifier|intercontinental|\bic\b|\bgroup\b|^\s*[\d\s]+\s*$/i
+  const isRealTeam  = (t) => t?.id && !PLACEHOLDER.test(t.displayName || '') && !PLACEHOLDER.test(t.shortDisplayName || '')
+
+  let batch = writeBatch(db)
+  let count = 0
+  let added = 0
+  for (const { event, stageValue } of Object.values(eventsMap)) {
+    if (existingIds.has(String(event.id))) continue
+    const comp = event.competitions?.[0]
+    if (!comp) continue
+    const [h, a] = comp.competitors || []
+    if (!h || !a) continue
+    if (!isRealTeam(h.team) || !isRealTeam(a.team)) continue
+    const ref = doc(db, 'tournaments', tournamentId, 'matches', String(event.id))
+    batch.set(ref, {
+      id:       String(event.id),
+      date:     event.date?.slice(0, 10) || null,
+      time:     event.date?.slice(11, 16) || null,
+      utcDate:  event.date || null,
+      status:   espnMapStatus(event.status?.type?.name),
+      stage:    stageValue,
+      round:    event.week?.number || null,
+      homeTeam: { id: String(h.team.id), name: h.team.shortDisplayName || h.team.displayName, badge: logoMap[String(h.team.id)] || '' },
+      awayTeam: { id: String(a.team.id), name: a.team.shortDisplayName || a.team.displayName, badge: logoMap[String(a.team.id)] || '' },
+      score: {
+        home: h.score != null ? Number(h.score) : null,
+        away: a.score != null ? Number(a.score) : null,
+      },
+      locked: false,
+    })
+    added++
+    count++
+    if (count === 490) { await batch.commit(); batch = writeBatch(db); count = 0 }
+  }
+  if (count > 0) await batch.commit()
+  if (added > 0) await updateDoc(doc(db, 'tournaments', tournamentId), { updatedAt: serverTimestamp() })
+  return added
+}
+
+/**
+ * Fetches team logos from the ESPN teams endpoint and updates all match docs
+ * in the tournament with badge URLs. Use this to fix tournaments imported before
+ * badge support was added.
+ *
+ * @param {string} tournamentId
+ * @returns {number} number of match docs updated
+ */
+export const syncTeamBadges = async (tournamentId) => {
+  const tSnap = await getDoc(doc(db, 'tournaments', tournamentId))
+  if (!tSnap.exists()) throw new Error('Tournament not found')
+  const { sport, espnLeague } = tSnap.data()
+  if (!espnLeague) throw new Error('אין ESPN ליגה משויכת לטורניר')
+
+  const teamsData = await fetchESPNTeams(sport || 'soccer', espnLeague)
+  const logoMap = {}
+  for (const t of (teamsData?.sports?.[0]?.leagues?.[0]?.teams || [])) {
+    if (t.team?.id) logoMap[String(t.team.id)] = t.team.logos?.[0]?.href || ''
+  }
+  if (Object.keys(logoMap).length === 0) throw new Error('לא נמצאו לוגואים מ-ESPN')
+
+  const matchesSnap = await getDocs(collection(db, 'tournaments', tournamentId, 'matches'))
+  let batch = writeBatch(db)
+  let count = 0
+  let updated = 0
+  for (const d of matchesSnap.docs) {
+    const m = d.data()
+    const homeBadge = logoMap[m.homeTeam?.id] || ''
+    const awayBadge = logoMap[m.awayTeam?.id] || ''
+    if (!homeBadge && !awayBadge) continue
+    batch.update(d.ref, {
+      'homeTeam.badge': homeBadge,
+      'awayTeam.badge': awayBadge,
+    })
+    updated++
+    count++
+    if (count === 490) { await batch.commit(); batch = writeBatch(db); count = 0 }
+  }
+  if (count > 0) await batch.commit()
+  return updated
 }

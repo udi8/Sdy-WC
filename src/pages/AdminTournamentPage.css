@@ -170,8 +170,15 @@
   margin-top: 0.5rem;
 }
 
-.tournaments-list h3 {
+.tournaments-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 0.75rem;
+}
+
+.tournaments-list-header h3 {
+  margin: 0;
 }
 
 .tournament-row {

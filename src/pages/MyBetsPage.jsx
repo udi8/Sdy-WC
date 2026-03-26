@@ -123,7 +123,7 @@ const MyBetsPage = () => {
     Promise.all([
       getTournamentTeams(activeTournament.id, activeTournament.fromDate || null),
       getTournamentPlayers(activeTournament.id),
-      getStaticBet(userProfile.uid, activeTournament.id),
+      getStaticBet(userProfile.id, activeTournament.id),
     ]).then(([t, p, existing]) => {
       setTeams(t)
       setPlayers(p)
@@ -143,7 +143,7 @@ const MyBetsPage = () => {
       }
     }).catch((err) => toast.error('שגיאה בטעינה: ' + err.message))
       .finally(() => setDataLoading(false))
-  }, [activeTournament?.id, userProfile.uid])
+  }, [activeTournament?.id, userProfile.id])
 
   const set = (field, value) => setForm((f) => ({ ...f, [field]: value }))
 
@@ -151,7 +151,7 @@ const MyBetsPage = () => {
     if (locked) return
     setSaving(true)
     try {
-      await saveStaticBet(userProfile.uid, activeTournament.id, {
+      await saveStaticBet(userProfile.id, activeTournament.id, {
         champion:    form.champion    || null,
         second:      form.second      || null,
         third:       form.third       || null,
