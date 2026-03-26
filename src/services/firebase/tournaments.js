@@ -26,6 +26,7 @@ import {
   fetchESPNTeams,
   fetchESPNRoster,
   fetchESPNScoreboard,
+  fetchESPNDateRange,
   espnMapStatus,
 } from '../api/espn'
 
@@ -439,28 +440,34 @@ export { TOTAL_PLAYER_CHUNKS }
 export const importFromESPN = async (sport, league, startDate, endDate) => {
   const tournamentId = `espn_${sport}_${league}_${startDate.slice(0, 4)}`
 
-  // Build list of weekly date strings to sweep
+  // Build list of weekly date strings to sweep (fallback if range call misses events)
   const dates = []
   for (let d = new Date(startDate); d <= new Date(endDate); d.setDate(d.getDate() + 7)) {
     dates.push(d.toISOString().slice(0, 10).replace(/-/g, ''))
   }
+  const fromStr = startDate.replace(/-/g, '')
+  const toStr   = endDate.replace(/-/g, '')
 
-  // Fetch scoreboard weeks + teams endpoint in parallel
-  // Teams endpoint is fallback when no matches exist yet (future tournaments)
-  const [teamsData, ...scoreboards] = await Promise.all([
+  // Fetch: teams + full date-range call + weekly sweep (all in parallel)
+  // The range call gets all matches in one shot for tournaments with known schedules.
+  // Weekly sweep acts as supplement for leagues where the range format returns partial data.
+  const [teamsData, rangeSb, ...scoreboards] = await Promise.all([
     fetchESPNTeams(sport, league).catch(() => null),
-    ...dates.map((dt) => fetchESPNScoreboard(sport, league, dt)),
+    fetchESPNDateRange(sport, league, fromStr, toStr).catch(() => ({ events: [] })),
+    ...dates.map((dt) => fetchESPNScoreboard(sport, league, dt).catch(() => ({ events: [] }))),
   ])
 
-  // Deduplicate events across weeks
+  // Deduplicate events from both sources
   const eventsMap = {}
+  for (const event of (rangeSb.events || [])) eventsMap[event.id] = event
   for (const sb of scoreboards) {
     for (const event of (sb.events || [])) eventsMap[event.id] = event
   }
   const events = Object.values(eventsMap)
 
-  // Derive league name from first scoreboard that has it
-  const name = scoreboards.find((sb) => sb.leagues?.[0]?.name)?.leagues?.[0]?.name
+  // Derive league name from range call or first weekly scoreboard that has it
+  const allSbs = [rangeSb, ...scoreboards]
+  const name = allSbs.find((sb) => sb.leagues?.[0]?.name)?.leagues?.[0]?.name
     || `${sport}/${league}`
 
   // Placeholder pattern — covers TBD, Winner/Loser qualifiers, playoff slots, etc.
