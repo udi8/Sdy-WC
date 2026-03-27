@@ -39,9 +39,9 @@ const LivePage = () => {
     return unsub
   }, [activeTournament?.id])
 
-  const liveMatches = matches.filter((m) => ['IN_PLAY', 'HALFTIME', 'PAUSED'].includes(m.status))
-  const finishedToday = matches.filter((m) => m.status === 'FINISHED')
-  const upcomingToday = matches.filter((m) => ['TIMED', 'SCHEDULED'].includes(m.status))
+  const liveMatches = matches.filter((m) => ['live', 'halftime', 'paused', 'IN_PLAY', 'HALFTIME', 'PAUSED'].includes(m.status))
+  const finishedToday = matches.filter((m) => ['finished', 'FINISHED'].includes(m.status))
+  const upcomingToday = matches.filter((m) => ['scheduled', 'timed', 'TIMED', 'SCHEDULED'].includes(m.status))
 
   return (
     <div className="live-page">
@@ -124,7 +124,7 @@ const MatchCard = ({ match, type }) => {
     <div className={`live-match-card live-match-${type}`}>
       <div className="live-match-teams">
         <span className="live-team">
-          {match.homeTeam?.crest && (
+          {match.homeTeam?.badge && (
             <img src={match.homeTeam.crest} alt="" className="live-team-logo" />
           )}
           {match.homeTeam?.name || 'בית'}
@@ -136,7 +136,7 @@ const MatchCard = ({ match, type }) => {
         </span>
         <span className="live-team away">
           {match.awayTeam?.name || 'אורח'}
-          {match.awayTeam?.crest && (
+          {match.awayTeam?.badge && (
             <img src={match.awayTeam.crest} alt="" className="live-team-logo" />
           )}
         </span>
