@@ -117,6 +117,26 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // ─── Match bets (round predictions per user per tournament) ─────────
+    match /matchBets/{betId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+
+      allow create: if isActiveUser() &&
+        request.resource.data.userId == request.auth.uid;
+
+      allow update: if (isActiveUser() &&
+        resource.data.userId == request.auth.uid) ||
+        isAdmin();
+
+      allow delete: if isAdmin();
+    }
+
+    // ─── Settings (betLockHours, etc.) ───────────────────────────────────
+    match /settings/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
     // ─── Leagues catalogue (synced from TheSportsDB) ────────
     match /leagues/{leagueId} {
       allow read: if isSignedIn();

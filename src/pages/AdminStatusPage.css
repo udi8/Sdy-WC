@@ -13,6 +13,7 @@
 .status-loading { background: #f0f0f0; color: #666; }
 .status-ok { background: #e6f7ee; color: var(--color-accent); }
 .status-error { background: #fdecea; color: var(--color-danger); }
+.status-note { font-size: 0.78rem; color: var(--color-text-muted); margin-right: 0.5rem; }
 
 /* Actions */
 .status-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; }

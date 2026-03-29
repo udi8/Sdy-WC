@@ -251,7 +251,10 @@ const MyBetsPage = () => {
   }
 
   const openStages = (() => {
-    if (!activeTournament?.stages?.length) return []
+    if (!activeTournament?.stages?.length) {
+      // No stages configured → show all matches under one group
+      return allMatches.length > 0 ? [{ value: '__all__', label: 'כל המשחקים' }] : []
+    }
     const stages = activeTournament.stages.filter(s => s.imported !== false || s.label?.toLowerCase().includes('group'))
     return stages.filter((stage, idx) => {
       if (idx === 0) return true
@@ -410,9 +413,9 @@ const MyBetsPage = () => {
         )}
 
         {openStages.map(stage => {
-          const stageMatches = allMatches.filter(m =>
-            m.stage === stage.value || String(m.round) === stage.value
-          )
+          const stageMatches = stage.value === '__all__'
+            ? allMatches
+            : allMatches.filter(m => m.stage === stage.value || String(m.round) === stage.value)
           if (stageMatches.length === 0) return null
           return (
             <div key={stage.value} className="round-stage">

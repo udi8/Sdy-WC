@@ -8,14 +8,15 @@ import { syncTournamentMatches, syncTeamBadges } from '../services/firebase/tour
 import { ROUTES } from '../utils/constants'
 import './AdminStatusPage.css'
 
-const StatusRow = ({ label, status }) => {
-  const icon = status === 'loading' ? '⏳' : status === 'ok' ? '🟢' : '🔴'
-  const text = status === 'loading' ? 'בודק...' : status === 'ok' ? 'תקין' : 'שגיאה'
-  const cls = `status-badge status-${status}`
+const StatusRow = ({ label, status, note }) => {
+  const icon = status === 'loading' ? '⏳' : status === 'ok' ? '🟢' : status === 'cors' ? '🟡' : '🔴'
+  const text = status === 'loading' ? 'בודק...' : status === 'ok' ? 'תקין' : status === 'cors' ? 'לא נגיש מהדפדפן' : 'שגיאה'
+  const cls = `status-badge status-${status === 'cors' ? 'loading' : status}`
   return (
     <div className="status-row">
       <span className="status-label">{label}</span>
       <span className={cls}>{icon} {text}</span>
+      {note && <span className="status-note">{note}</span>}
     </div>
   )
 }
@@ -45,7 +46,11 @@ const AdminStatusPage = () => {
           { signal: AbortSignal.timeout(5000) }
         )
         return r.ok ? 'ok' : 'error'
-      } catch {
+      } catch (e) {
+        // CORS or network error — ESPN blocks browser requests from external domains
+        if (e?.name === 'TypeError' || e?.message?.includes('CORS') || e?.message?.includes('Failed to fetch') || e?.name === 'AbortError') {
+          return 'cors'
+        }
         return 'error'
       }
     }
@@ -98,7 +103,7 @@ const AdminStatusPage = () => {
         <h3>בדיקות חיבור</h3>
         <div className="status-rows">
           <StatusRow label="Firebase Firestore" status={fbStatus} />
-          <StatusRow label="ESPN API" status={espnStatus} />
+          <StatusRow label="ESPN API" status={espnStatus} note={espnStatus === 'cors' ? '(חסום CORS מהדפדפן — תקין לשימוש צד-שרת)' : undefined} />
         </div>
       </div>
 
