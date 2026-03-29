@@ -1,0 +1,28 @@
+.admin-status-page h2 { color: var(--color-primary); margin-bottom: 1rem; }
+
+.status-card { margin-bottom: 1rem; }
+.status-card h3 { font-size: 1rem; font-weight: 700; color: var(--color-primary); margin-bottom: 0.85rem; }
+
+/* Status rows */
+.status-rows { display: flex; flex-direction: column; gap: 0.6rem; }
+.status-row { display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid var(--color-border); }
+.status-row:last-child { border-bottom: none; }
+.status-label { font-size: 0.95rem; font-weight: 500; }
+
+.status-badge { font-size: 0.9rem; font-weight: 600; padding: 0.2rem 0.6rem; border-radius: 12px; }
+.status-loading { background: #f0f0f0; color: #666; }
+.status-ok { background: #e6f7ee; color: var(--color-accent); }
+.status-error { background: #fdecea; color: var(--color-danger); }
+
+/* Actions */
+.status-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+
+/* Log */
+.status-log { margin-top: 1rem; padding: 0.75rem 1rem; background: #f8f9fa; border-radius: var(--radius-sm); border: 1px solid var(--color-border); font-size: 0.85rem; }
+.status-log-line { padding: 0.2rem 0; font-family: monospace; }
+
+/* Tournaments list */
+.status-tourn-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.status-tourn-item { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0; border-bottom: 1px solid var(--color-border); }
+.status-tourn-item:last-child { border-bottom: none; }
+.status-tourn-emblem { width: 24px; height: 24px; object-fit: contain; }
