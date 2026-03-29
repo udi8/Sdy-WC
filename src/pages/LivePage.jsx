@@ -5,30 +5,41 @@ import { useTournament } from '../contexts/TournamentContext'
 import './LivePage.css'
 
 const LivePage = () => {
-  const { activeTournament } = useTournament()
+  const { activeTournaments = [], activeTournament, loading: tLoading } = useTournament()
   const [leaderboard, setLeaderboard] = useState([])
   const [matches, setMatches] = useState([])
+  const [selectedId, setSelectedId] = useState(null)
+
+  useEffect(() => {
+    if (activeTournaments.length > 0 && !selectedId)
+      setSelectedId(activeTournaments[0].id)
+  }, [activeTournaments])
+
+  const selectedTournament = activeTournaments.find(t => t.id === selectedId) || activeTournaments[0] || null
 
   // Top 10 leaderboard — updates every 60 seconds via Firestore real-time
   useEffect(() => {
-    if (!activeTournament?.id) return
+    if (!selectedTournament?.id) return
     const q = query(
-      collection(db, 'tournaments', activeTournament.id, 'leaderboard'),
+      collection(db, 'tournaments', selectedTournament.id, 'leaderboard'),
       orderBy('totalPoints', 'desc'),
       limit(10)
     )
     const unsub = onSnapshot(q, (snap) => {
       setLeaderboard(snap.docs.map((d, i) => ({ rank: i + 1, id: d.id, ...d.data() })))
     })
-    return unsub
-  }, [activeTournament?.id])
+    return () => {
+      setLeaderboard([])
+      unsub()
+    }
+  }, [selectedTournament?.id])
 
   // Live & today's matches
   useEffect(() => {
-    if (!activeTournament?.id) return
+    if (!selectedTournament?.id) return
     const today = new Date().toISOString().slice(0, 10)
     const q = query(
-      collection(db, 'tournaments', activeTournament.id, 'matches'),
+      collection(db, 'tournaments', selectedTournament.id, 'matches'),
       orderBy('utcDate', 'asc')
     )
     const unsub = onSnapshot(q, (snap) => {
@@ -36,12 +47,15 @@ const LivePage = () => {
       const todayMatches = all.filter((m) => m.utcDate?.startsWith(today))
       setMatches(todayMatches)
     })
-    return unsub
-  }, [activeTournament?.id])
+    return () => {
+      setMatches([])
+      unsub()
+    }
+  }, [selectedTournament?.id])
 
-  const liveMatches = matches.filter((m) => ['IN_PLAY', 'HALFTIME', 'PAUSED'].includes(m.status))
-  const finishedToday = matches.filter((m) => m.status === 'FINISHED')
-  const upcomingToday = matches.filter((m) => ['TIMED', 'SCHEDULED'].includes(m.status))
+  const liveMatches = matches.filter((m) => ['live', 'halftime', 'paused', 'IN_PLAY', 'HALFTIME', 'PAUSED'].includes(m.status))
+  const finishedToday = matches.filter((m) => ['finished', 'FINISHED'].includes(m.status))
+  const upcomingToday = matches.filter((m) => ['scheduled', 'timed', 'TIMED', 'SCHEDULED'].includes(m.status))
 
   return (
     <div className="live-page">
@@ -50,8 +64,22 @@ const LivePage = () => {
         <div className="live-logo">🏆</div>
         <div>
           <h1 className="live-title">ניחושי ספורט</h1>
-          {activeTournament && (
-            <p className="live-tournament">{activeTournament.name}</p>
+          {selectedTournament && (
+            <p className="live-tournament">{selectedTournament.name}</p>
+          )}
+          {activeTournaments.length > 1 && (
+            <div className="live-tabs">
+              {activeTournaments.map((t) => (
+                <button
+                  key={t.id}
+                  className={`live-tab${t.id === selectedId ? ' live-tab-active' : ''}`}
+                  onClick={() => setSelectedId(t.id)}
+                >
+                  {t.emblem && <img src={t.emblem} alt="" className="live-tab-emblem" />}
+                  {t.name}
+                </button>
+              ))}
+            </div>
           )}
         </div>
       </header>
@@ -124,7 +152,7 @@ const MatchCard = ({ match, type }) => {
     <div className={`live-match-card live-match-${type}`}>
       <div className="live-match-teams">
         <span className="live-team">
-          {match.homeTeam?.crest && (
+          {match.homeTeam?.badge && (
             <img src={match.homeTeam.crest} alt="" className="live-team-logo" />
           )}
           {match.homeTeam?.name || 'בית'}
@@ -136,7 +164,7 @@ const MatchCard = ({ match, type }) => {
         </span>
         <span className="live-team away">
           {match.awayTeam?.name || 'אורח'}
-          {match.awayTeam?.crest && (
+          {match.awayTeam?.badge && (
             <img src={match.awayTeam.crest} alt="" className="live-team-logo" />
           )}
         </span>

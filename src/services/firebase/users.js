@@ -4,6 +4,7 @@ import {
   getDoc,
   getDocs,
   updateDoc,
+  deleteDoc,
   query,
   orderBy,
   serverTimestamp,
@@ -36,3 +37,9 @@ export const setAdminRole = (uid) =>
 
 export const rejectUnderage = (uid) =>
   updateUserStatus(uid, 'rejected_underage', 'none')
+
+export const removeUser = (uid) =>
+  deleteDoc(doc(db, 'users', uid))
+
+export const demoteAdmin = (uid) =>
+  updateUserStatus(uid, 'active', 'member')

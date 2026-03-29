@@ -3,7 +3,7 @@
 }
 
 .home-header {
-  margin-bottom: 1.5rem;
+  margin-bottom: 1rem;
 }
 
 .home-greeting {
@@ -11,28 +11,195 @@
   color: var(--color-primary);
 }
 
-.home-tournament-name {
-  font-size: 1.1rem;
-  color: var(--color-text-muted);
-  margin-top: 0.25rem;
+/* Tournament tabs */
+.home-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
 }
 
+.home-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.home-tab:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.home-tab-active {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+}
+
+.home-tab-emblem {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+
+/* No tournament */
 .home-no-tournament {
   text-align: center;
   padding: 3rem 2rem;
   font-size: 1.1rem;
 }
 
-.home-grid {
+/* Top grid: rank card + matches */
+.home-top-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: 220px 1fr;
   gap: 1rem;
+  align-items: start;
 }
 
-.home-widget h3 {
-  font-size: 1.1rem;
-  margin-bottom: 0.5rem;
+/* Rank card */
+.home-rank-card {
+  text-align: center;
+  padding: 1.25rem 1rem;
+}
+
+.home-rank-number {
+  font-size: 2.5rem;
+  font-weight: 700;
   color: var(--color-primary);
+  line-height: 1;
+  margin-bottom: 0.4rem;
+}
+
+.home-rank-label {
+  font-size: 0.88rem;
+  color: var(--color-text-muted);
+  margin-bottom: 0.75rem;
+}
+
+.home-rank-points {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--color-secondary);
+}
+
+.home-rank-empty {
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+}
+
+/* Matches column */
+.home-matches-col {
+  min-width: 0;
+}
+
+.home-section-title {
+  font-size: 1.1rem;
+  color: var(--color-primary);
+  margin-bottom: 0.75rem;
+  font-weight: 600;
+}
+
+.home-match-group-label {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+/* Match cards */
+.home-match-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.6rem;
+  background: #fff;
+}
+
+.home-match-live {
+  border-left: 3px solid var(--color-danger);
+}
+
+.home-match-finished {
+  opacity: 0.8;
+}
+
+.home-match-teams {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.home-team {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.home-team.away {
+  flex-direction: row-reverse;
+}
+
+.home-team-logo {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+
+.home-match-score {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--color-primary);
+  min-width: 60px;
+  text-align: center;
+}
+
+.home-match-bet {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  margin-top: 0.3rem;
+  padding-top: 0.3rem;
+  border-top: 1px dashed var(--color-border);
+}
+
+.home-match-elapsed {
+  font-size: 0.78rem;
+  color: var(--color-danger);
+  font-weight: 600;
+  display: block;
+  margin-top: 0.2rem;
+}
+
+/* Responsive */
+@media (max-width: 700px) {
+  .home-top-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .home-rank-card {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    text-align: right;
+    padding: 1rem;
+  }
+
+  .home-rank-number {
+    font-size: 2rem;
+    margin-bottom: 0;
+  }
 }
 
 @media (max-width: 768px) {

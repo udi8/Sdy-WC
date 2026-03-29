@@ -164,3 +164,43 @@
   .live-name  { font-size: 1rem; }
   .live-points { font-size: 1.2rem; }
 }
+
+/* ── Tournament tabs ─────────────────────────────────────────────────────── */
+.live-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.live-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: 20px;
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.75);
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.live-tab:hover {
+  background: rgba(255,255,255,0.15);
+}
+
+.live-tab-active {
+  background: rgba(255,255,255,0.2);
+  border-color: rgba(255,255,255,0.6);
+  color: #fff;
+  font-weight: 600;
+}
+
+.live-tab-emblem {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}

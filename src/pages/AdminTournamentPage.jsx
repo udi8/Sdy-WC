@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
 import { db } from '../services/firebase/config'
 import { getLeague } from '../services/api/sportsDb'
 import { POPULAR_LEAGUES } from '../data/leagues'
-import { importTournament, importTournamentPlayers, addManualTeams, activateTournament, deactivateTournament, deleteTournament, importFromFootballData, importFromESPN, TOTAL_PLAYER_CHUNKS } from '../services/firebase/tournaments'
+import { importTournament, addManualTeams, activateTournament, deactivateTournament, deleteTournament, importFromFootballData, importFromESPN, syncTournamentMatches, syncTeamBadges } from '../services/firebase/tournaments'
 import { toast } from 'react-toastify'
 import './AdminTournamentPage.css'
-import { seasonToEndDate } from '../utils/season'
+import { seasonToEndDate, seasonToStartDate } from '../utils/season'
+import { ROUTES } from '../utils/constants'
 
 const defaultSeason = () => {
   const y = new Date().getFullYear()
@@ -21,8 +23,9 @@ const AdminTournamentPage = () => {
   const [seasons, setSeasons]         = useState({})
   const [fromDates, setFromDates]     = useState({})
   const [importingId, setImportingId]     = useState(null)
-  const [importingPlayers, setImportingPlayers] = useState(null) // '{id}-AL' or '{id}-MZ'
   const [deletingId, setDeletingId]       = useState(null)
+  const [syncingMatchesId, setSyncingMatchesId] = useState(null)
+  const [syncingBadgesId, setSyncingBadgesId]   = useState(null)
   const [importProgress, setImportProgress] = useState('')
   const [tournaments, setTournaments] = useState([])
   const [fdCode, setFdCode]           = useState('')
@@ -126,13 +129,12 @@ const AdminTournamentPage = () => {
   }
 
   const handleESPNImportForLeague = async (league) => {
-    const season   = getSeason(league.id)
-    const fromDate = getFromDate(league.id).trim()
-    const endDate  = seasonToEndDate(season)
+    const season    = getSeason(league.id)
+    const startDate = getFromDate(league.id).trim() || new Date().toISOString().slice(0, 10)
+    const endDate   = seasonToEndDate(season)
 
-    if (!fromDate) { toast.error('יש להזין תאריך התחלה לייבוא ESPN'); return }
-    if (!endDate)  { toast.error('יש להזין עונה'); return }
-    if (!window.confirm(`לייבא "${league.name}" עונת ${season} מ-ESPN (${fromDate} → ${endDate})?`)) return
+    if (!endDate) { toast.error('יש להזין עונה'); return }
+    if (!window.confirm(`לייבא "${league.name}" עונת ${season} מ-ESPN (${startDate} → ${endDate})?`)) return
 
     setEspnImportingId(league.id)
     setImportingId(league.id)
@@ -141,7 +143,7 @@ const AdminTournamentPage = () => {
       const result = await importFromESPN(
         league.espnSport,
         league.espnId,
-        fromDate,
+        startDate,
         endDate,
       )
       setImportProgress('')
@@ -156,16 +158,27 @@ const AdminTournamentPage = () => {
     }
   }
 
-  const handleImportPlayers = async (t, chunkNum) => {
-    const key = `${t.id}-${chunkNum}`
-    setImportingPlayers(key)
+  const handleSyncMatches = async (t) => {
+    setSyncingMatchesId(t.id)
     try {
-      const count = await importTournamentPlayers(t.id, chunkNum)
-      toast.success(`✅ ייבוא ${chunkNum}/${TOTAL_PLAYER_CHUNKS} הושלם (${count} קבוצות)`)
+      const added = await syncTournamentMatches(t.id)
+      toast.success(`✅ סנכרון הושלם — ${added} משחקים חדשים נוספו`)
     } catch (err) {
-      toast.error('שגיאה בייבוא שחקנים: ' + err.message)
+      toast.error('שגיאה בסנכרון: ' + err.message)
     } finally {
-      setImportingPlayers(null)
+      setSyncingMatchesId(null)
+    }
+  }
+
+  const handleSyncBadges = async (t) => {
+    setSyncingBadgesId(t.id)
+    try {
+      const updated = await syncTeamBadges(t.id)
+      toast.success(`✅ לוגואים עודכנו — ${updated} משחקים`)
+    } catch (err) {
+      toast.error('שגיאה בעדכון לוגואים: ' + err.message)
+    } finally {
+      setSyncingBadgesId(null)
     }
   }
 
@@ -261,14 +274,16 @@ const AdminTournamentPage = () => {
           placeholder="עונה"
           disabled={!!importingId}
         />
-        <input
-          type="date"
-          className="form-control season-input"
-          value={getFromDate(league.id)}
-          onChange={(e) => setFromDate(league.id, e.target.value)}
-          title="תאריך התחלה — גם משמש כתאריך התחלה לייבוא ESPN"
-          disabled={!!importingId}
-        />
+        {league.espnId && (
+          <input
+            type="date"
+            className="form-control season-input"
+            value={getFromDate(league.id)}
+            onChange={(e) => setFromDate(league.id, e.target.value)}
+            title="תאריך התחלה (אופציונלי — ברירת מחדל: היום)"
+            disabled={!!importingId}
+          />
+        )}
         {league.espnId ? (
           <button
             className="btn btn-primary"
@@ -293,11 +308,15 @@ const AdminTournamentPage = () => {
 
   return (
     <div className="admin-tournament-page">
+      <Link to={ROUTES.ADMIN} className="back-link">← חזור לניהול</Link>
       <h2>🏆 יצירת טורניר</h2>
 
       {/* Popular list with search */}
       <div className="tournament-search card">
-        <h3>בחר ליגה או תחרות</h3>
+        <div className="search-header">
+          <h3>בחר ליגה או תחרות</h3>
+          <button className="btn btn-ghost btn-sm" onClick={() => window.location.reload()} title="רענן דף">🔄 רענן</button>
+        </div>
         <input
           type="text"
           className="form-control"
@@ -405,11 +424,13 @@ const AdminTournamentPage = () => {
         )}
       </div>
 
-      {/* ESPN import */}
-      <div className="tournament-search card">
-        <h3>ייבוא מ-ESPN <span className="badge badge-muted">ללא API Key</span></h3>
-        <p className="text-muted caption-text">
-          סקר שבועי של לוח התוצאות — 139 ליגות, ללא הגדרות נוספות
+      {/* ESPN manual import — advanced, collapsed by default */}
+      <details className="tournament-search card">
+        <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
+          ייבוא ידני מ-ESPN <span className="badge badge-muted">מתקדם</span>
+        </summary>
+        <p className="text-muted caption-text" style={{ marginTop: '0.5rem' }}>
+          לייבוא ליגות שאינן ברשימה. קוד הליגה: <code>eng.1</code> / <code>isr.1</code> / <code>fifa.world</code>
         </p>
         <div className="search-row">
           <input
@@ -421,7 +442,7 @@ const AdminTournamentPage = () => {
           />
           <input
             className="form-control season-input"
-            placeholder="ליגה: eng.1 / isr.1 / fifa.world"
+            placeholder="קוד ליגה: eng.1 / isr.1"
             value={espnLeague}
             onChange={(e) => setEspnLeague(e.target.value)}
             disabled={espnImporting}
@@ -446,12 +467,21 @@ const AdminTournamentPage = () => {
             <span>{espnProgress}</span>
           </div>
         )}
-      </div>
+      </details>
 
       {/* Existing tournaments */}
       {tournaments.length > 0 && (
         <div className="tournaments-list">
-          <h3>טורנירים קיימים</h3>
+          <div className="tournaments-list-header">
+            <h3>טורנירים קיימים</h3>
+            <button
+              className="btn btn-ghost"
+              onClick={() => window.location.reload()}
+              title="רענן רשימה"
+            >
+              🔄 רענן
+            </button>
+          </div>
           {tournaments.map((t) => {
             const s = statusLabel[t.status] || { text: t.status, cls: 'badge-muted' }
             return (
@@ -471,21 +501,26 @@ const AdminTournamentPage = () => {
                   {t.status === 'active' && (
                     <button className="btn btn-outline" onClick={() => handleDeactivate(t)}>⏹️ סיים</button>
                   )}
-                  {Array.from({ length: TOTAL_PLAYER_CHUNKS }, (_, i) => i + 1).map((n) => {
-                    const done = (t.playerChunks || []).includes(n)
-                    const busy = importingPlayers === `${t.id}-${n}`
-                    return (
-                      <button
-                        key={n}
-                        className={`btn ${done ? 'btn-ghost' : 'btn-secondary'}`}
-                        onClick={() => !done && handleImportPlayers(t, n)}
-                        disabled={!!importingPlayers || done}
-                        title={`ייבא שחקנים — קבוצה ${n}/${TOTAL_PLAYER_CHUNKS}`}
-                      >
-                        {busy ? '⏳' : done ? `✅${n}` : `👤${n}`}
-                      </button>
-                    )
-                  })}
+                  {t.espnLeague && (
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => handleSyncMatches(t)}
+                      disabled={!!syncingMatchesId || !!syncingBadgesId}
+                      title="סנכרן משחקים חדשים מ-ESPN"
+                    >
+                      {syncingMatchesId === t.id ? '⏳' : '🔄 משחקים'}
+                    </button>
+                  )}
+                  {t.espnLeague && (
+                    <button
+                      className="btn btn-ghost"
+                      onClick={() => handleSyncBadges(t)}
+                      disabled={!!syncingMatchesId || !!syncingBadgesId}
+                      title="עדכן לוגואים/דגלים מ-ESPN"
+                    >
+                      {syncingBadgesId === t.id ? '⏳' : '🖼️ לוגואים'}
+                    </button>
+                  )}
                   <button
                     className="btn btn-danger"
                     onClick={() => handleDelete(t)}

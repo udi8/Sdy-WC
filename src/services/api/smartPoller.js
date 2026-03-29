@@ -53,7 +53,7 @@ const runPollCycle = async (tournamentId) => {
 
     const now = Date.now()
     const upcoming = todayMatches.filter((m) => msUntil(m.utcDate) > 0)
-    const live = todayMatches.filter((m) => m.status === 'IN_PLAY' || m.status === 'HALFTIME')
+    const live = todayMatches.filter((m) => ['live', 'halftime', 'IN_PLAY', 'HALFTIME'].includes(m.status))
     const nextMatch = upcoming.sort((a, b) => new Date(a.utcDate) - new Date(b.utcDate))[0]
 
     if (live.length > 0) {
@@ -76,6 +76,16 @@ const runPollCycle = async (tournamentId) => {
   }
 }
 
+const API_FOOTBALL_STATUS = {
+  'NS': 'scheduled', 'TBD': 'scheduled',
+  '1H': 'live', '2H': 'live', 'ET': 'live', 'P': 'live', 'BT': 'live',
+  'HT': 'halftime',
+  'FT': 'finished', 'AET': 'finished', 'PEN': 'finished',
+  'SUSP': 'postponed', 'INT': 'postponed', 'PST': 'postponed',
+  'CANC': 'postponed', 'ABD': 'postponed', 'AWD': 'finished', 'WO': 'finished',
+  'LIVE': 'live',
+}
+
 const fetchAndStoreLiveData = async (tournamentId) => {
   const data = await getLiveFixtures()
   if (!data?.response) return
@@ -88,10 +98,11 @@ const fetchAndStoreLiveData = async (tournamentId) => {
       'matches',
       String(fixture.fixture.id)
     )
+    const rawStatus = fixture.fixture.status.short
     await setDoc(
       matchRef,
       {
-        status: fixture.fixture.status.short,
+        status: API_FOOTBALL_STATUS[rawStatus] || 'live',
         score: fixture.goals,
         elapsed: fixture.fixture.status.elapsed,
         events: fixture.events || [],
