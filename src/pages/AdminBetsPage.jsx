@@ -9,6 +9,8 @@ import {
   getAllStaticBets,
   submitMatchResult,
   scoreMatchBet,
+  getTournamentTeams,
+  getTournamentPlayers,
 } from '../services/firebase/bets'
 import { useTournament } from '../contexts/TournamentContext'
 import { toast } from 'react-toastify'
@@ -92,16 +94,22 @@ const LockTab = ({ lockHours, setLockHours, savingLock, setSavingLock }) => {
 // ── Sub-component: Static Bets Tab ─────────────────────────────────────────────
 
 const STATIC_BET_COLUMNS = [
-  { key: 'champion',  label: 'אלוף'       },
-  { key: 'runnerUp',  label: 'גמר'        },
-  { key: 'topScorer', label: 'מלך שערים' },
-  { key: 'mvp',       label: 'MVP'        },
-  { key: 'darkHorse', label: 'סוס שחור'  },
+  { key: 'champion',  label: 'אלוף',       type: 'team'   },
+  { key: 'runnerUp',  label: 'גמר',        type: 'team'   },
+  { key: 'topScorer', label: 'מלך שערים', type: 'player' },
+  { key: 'mvp',       label: 'MVP',        type: 'player' },
+  { key: 'darkHorse', label: 'סוס שחור',  type: 'team'   },
 ]
 
-const StaticTab = ({ staticBets, users }) => {
+const StaticTab = ({ staticBets, users, teamMap, playerMap }) => {
   const getUserDisplayName = (userId) =>
     users.find((u) => u.id === userId)?.displayName || userId
+
+  const resolve = (val, type) => {
+    if (!val) return '—'
+    if (type === 'player') return playerMap[val] || val
+    return teamMap[val] || val
+  }
 
   if (staticBets.length === 0) {
     return (
@@ -131,7 +139,7 @@ const StaticTab = ({ staticBets, users }) => {
                 <td>{idx + 1}</td>
                 <td>{getUserDisplayName(bet.userId)}</td>
                 {STATIC_BET_COLUMNS.map((col) => (
-                  <td key={col.key}>{bet[col.key] || '—'}</td>
+                  <td key={col.key}>{resolve(bet[col.key], col.type)}</td>
                 ))}
               </tr>
             ))}
@@ -339,6 +347,8 @@ const AdminBetsPage = () => {
   // Tab 2
   const [staticBets, setStaticBets] = useState([])
   const [users, setUsers] = useState([])
+  const [tournTeams, setTournTeams] = useState([])
+  const [tournPlayers, setTournPlayers] = useState([])
 
   // Tab 3
   const [matches, setMatches] = useState([])
@@ -370,6 +380,8 @@ const AdminBetsPage = () => {
       ),
       getAllStaticBets(selectedTournId).then(setStaticBets),
       getAllMatchBets(selectedTournId).then(setAllMatchBets),
+      getTournamentTeams(selectedTournId).then(setTournTeams),
+      getTournamentPlayers(selectedTournId).then(setTournPlayers),
       getDocs(
         query(
           collection(db, 'tournaments', selectedTournId, 'matches'),
@@ -464,6 +476,8 @@ const AdminBetsPage = () => {
             <StaticTab
               staticBets={staticBets}
               users={users}
+              teamMap={Object.fromEntries(tournTeams.map(t => [t.id, t.name]))}
+              playerMap={Object.fromEntries(tournPlayers.map(p => [p.id, p.name]))}
             />
           )}
 
