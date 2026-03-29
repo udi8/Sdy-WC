@@ -28,10 +28,79 @@ jobs:
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
 
       - name: Deploy Firestore Rules
+        env:
+          FIREBASE_SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
-          echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > /tmp/sa.json
-          GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa.json npx firebase-tools deploy --only firestore:rules --project sdy-wc --force
-          rm /tmp/sa.json
+          python3 << 'PYEOF'
+          import json, time, base64, urllib.request, urllib.parse, os, subprocess, tempfile
+
+          sa = json.loads(os.environ['FIREBASE_SA_JSON'])
+          project_id = 'sdy-wc'
+
+          # Write private key to temp file for openssl signing
+          with tempfile.NamedTemporaryFile(mode='w', suffix='.pem', delete=False) as f:
+              f.write(sa['private_key'])
+              key_file = f.name
+
+          # Build JWT
+          header = base64.urlsafe_b64encode(json.dumps({"alg":"RS256","typ":"JWT"}).encode()).rstrip(b'=').decode()
+          now = int(time.time())
+          claims = {
+              "iss": sa["client_email"],
+              "sub": sa["client_email"],
+              "aud": "https://oauth2.googleapis.com/token",
+              "iat": now, "exp": now + 3600,
+              "scope": "https://www.googleapis.com/auth/cloud-platform"
+          }
+          payload = base64.urlsafe_b64encode(json.dumps(claims).encode()).rstrip(b'=').decode()
+          sign_input = f"{header}.{payload}"
+
+          # Sign with openssl
+          proc = subprocess.run(['openssl', 'dgst', '-sha256', '-sign', key_file],
+              input=sign_input.encode(), capture_output=True)
+          os.unlink(key_file)
+          sig = base64.urlsafe_b64encode(proc.stdout).rstrip(b'=').decode()
+          jwt_token = f"{sign_input}.{sig}"
+
+          # Exchange JWT for access token
+          token_data = urllib.parse.urlencode({
+              "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+              "assertion": jwt_token
+          }).encode()
+          token_req = urllib.request.Request("https://oauth2.googleapis.com/token", data=token_data)
+          token_resp = json.loads(urllib.request.urlopen(token_req).read())
+          access_token = token_resp["access_token"]
+          print("Got access token")
+
+          # Read rules
+          rules_content = open("firestore.rules").read()
+
+          # Create ruleset
+          ruleset_body = json.dumps({"source": {"files": [{"content": rules_content, "name": "firestore.rules"}]}}).encode()
+          ruleset_req = urllib.request.Request(
+              f"https://firebaserules.googleapis.com/v1/projects/{project_id}/rulesets",
+              data=ruleset_body,
+              headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+              method="POST")
+          ruleset_resp = json.loads(urllib.request.urlopen(ruleset_req).read())
+          ruleset_name = ruleset_resp["name"]
+          print(f"Created ruleset: {ruleset_name}")
+
+          # Update cloud.firestore release
+          release_body = json.dumps({
+              "release": {
+                  "name": f"projects/{project_id}/releases/cloud.firestore",
+                  "rulesetName": ruleset_name
+              }
+          }).encode()
+          release_req = urllib.request.Request(
+              f"https://firebaserules.googleapis.com/v1/projects/{project_id}/releases/cloud.firestore",
+              data=release_body,
+              headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+              method="PATCH")
+          release_resp = json.loads(urllib.request.urlopen(release_req).read())
+          print(f"Firestore rules deployed! {release_resp.get('name', 'ok')}")
+          PYEOF
 
       - name: Deploy to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
