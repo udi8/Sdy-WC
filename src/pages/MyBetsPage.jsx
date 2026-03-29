@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useTournament } from '../contexts/TournamentContext'
 import {
   getStaticBet, saveStaticBet,
   getTournamentTeams, getTournamentPlayers,
-  getMatchBet, saveMatchBet, getBetLockHours, isMatchLocked,
+  getMatchBet, saveMatchBet, getBetLockHours, isMatchLocked, scoreMatchBet,
 } from '../services/firebase/bets'
 import { getDocs, collection, query, orderBy } from 'firebase/firestore'
 import { db } from '../services/firebase/config'
@@ -29,7 +29,6 @@ const SearchSelect = ({ value, onChange, options, placeholder, disabled }) => {
     ? options.filter((o) => o.label.toLowerCase().includes(query.toLowerCase()))
     : options
 
-  // Close on outside click
   useEffect(() => {
     if (!open) return
     const handle = (e) => {
@@ -101,7 +100,6 @@ const MatchBetRow = ({ match, bet, locked, saving, onSave }) => {
   const [home, setHome] = useState(bet.home != null ? String(bet.home) : '')
   const [away, setAway] = useState(bet.away != null ? String(bet.away) : '')
 
-  // Update local state when bet prop changes (e.g. after save or tournament switch)
   useEffect(() => {
     setHome(bet.home != null ? String(bet.home) : '')
     setAway(bet.away != null ? String(bet.away) : '')
@@ -168,6 +166,65 @@ const MatchBetRow = ({ match, bet, locked, saving, onSave }) => {
   )
 }
 
+const PastMatchesTable = ({ matches, matchBets }) => {
+  if (matches.length === 0) return <p className="text-muted mt-1">אין משחקים שהסתיימו עדיין</p>
+
+  const formatDate = (utcDate, date) => {
+    const d = utcDate ? new Date(utcDate) : date ? new Date(date) : null
+    if (!d) return ''
+    return d.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' })
+  }
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table className="past-matches-table">
+        <thead>
+          <tr>
+            <th>תאריך</th>
+            <th>בית</th>
+            <th>תוצאה</th>
+            <th>אורח</th>
+            <th>ניחוש</th>
+            <th>נק'</th>
+          </tr>
+        </thead>
+        <tbody>
+          {matches.map(m => {
+            const bet = matchBets[m.id]
+            const result = m.score?.home != null && m.score?.away != null
+              ? { home: m.score.home, away: m.score.away } : null
+            const pts = bet && result ? scoreMatchBet(bet, result) : null
+            return (
+              <tr key={m.id} className={pts > 0 ? 'past-row-scored' : ''}>
+                <td className="past-date">{formatDate(m.utcDate, m.date)}</td>
+                <td className="past-team">
+                  {m.homeTeam?.badge && <img src={m.homeTeam.badge} alt="" className="past-badge" />}
+                  <span>{m.homeTeam?.name || '—'}</span>
+                </td>
+                <td className="past-score">
+                  {result ? `${result.home}:${result.away}` : '—'}
+                </td>
+                <td className="past-team past-away">
+                  <span>{m.awayTeam?.name || '—'}</span>
+                  {m.awayTeam?.badge && <img src={m.awayTeam.badge} alt="" className="past-badge" />}
+                </td>
+                <td className="past-bet">
+                  {bet ? `${bet.home}:${bet.away}` : <span className="text-muted">—</span>}
+                </td>
+                <td className="past-pts">
+                  {pts !== null ? (
+                    <span className={pts > 0 ? 'pts-positive' : 'pts-zero'}>{pts}</span>
+                  ) : '—'}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 const MyBetsPage = () => {
   const navigate = useNavigate()
   const { userProfile } = useAuth()
@@ -184,8 +241,8 @@ const MyBetsPage = () => {
   const [matchBets, setMatchBets]     = useState({})
   const [betLockHours, setBetLockHours] = useState(24)
   const [savingMatch, setSavingMatch] = useState(null)
+  const [matchTab, setMatchTab]       = useState('future')
 
-  // When activeTournaments loads/changes, default to first if nothing selected
   useEffect(() => {
     if (activeTournaments.length === 0) return
     setSelectedId((prev) => {
@@ -202,6 +259,7 @@ const MyBetsPage = () => {
     setForm(EMPTY)
     setAllMatches([])
     setMatchBets({})
+    setMatchTab('future')
     Promise.all([
       getTournamentTeams(activeTournament.id, activeTournament.fromDate || null),
       getTournamentPlayers(activeTournament.id),
@@ -250,20 +308,77 @@ const MyBetsPage = () => {
     }
   }
 
-  const openStages = (() => {
-    if (!activeTournament?.stages?.length) {
-      // No stages configured → show all matches under one group
-      return allMatches.length > 0 ? [{ value: '__all__', label: 'כל המשחקים' }] : []
+  // Compute grouped structure for future matches + past matches list
+  const { futureGroups, pastMatches } = useMemo(() => {
+    if (!activeTournament) return { futureGroups: [], pastMatches: [] }
+
+    const past = allMatches
+      .filter(m => m.status === 'finished')
+      .sort((a, b) => new Date(b.utcDate || b.date) - new Date(a.utcDate || a.date))
+
+    const future = allMatches.filter(m => m.status !== 'finished')
+
+    // Group by stage, preserving tournament.stages order
+    const stageOrder = (activeTournament.stages || []).map(s => s.value)
+    const stageMap = new Map()
+    for (const m of future) {
+      const key = m.stage || '__no_stage__'
+      if (!stageMap.has(key)) stageMap.set(key, [])
+      stageMap.get(key).push(m)
     }
-    const stages = activeTournament.stages.filter(s => s.imported !== false || s.label?.toLowerCase().includes('group'))
-    return stages.filter((stage, idx) => {
-      if (idx === 0) return true
-      const prevStage = stages[idx - 1]
-      const prevMatches = allMatches.filter(m => m.stage === prevStage.value || String(m.round) === prevStage.value)
-      if (prevMatches.length === 0) return false
-      return prevMatches.every(m => ['finished', 'FINISHED'].includes(m.status))
+
+    const stageEntries = Array.from(stageMap.entries()).sort((a, b) => {
+      const ai = stageOrder.indexOf(a[0]); const bi = stageOrder.indexOf(b[0])
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
     })
-  })()
+
+    const groups = []
+    for (const [stageKey, stageMatches] of stageEntries) {
+      const stageMeta = (activeTournament.stages || []).find(s => s.value === stageKey)
+      const stageLabel = stageMeta?.label || (stageKey === '__no_stage__' ? 'משחקים' : stageKey)
+
+      // Group by round within stage
+      const roundMap = new Map()
+      for (const m of stageMatches) {
+        const rk = m.round != null ? m.round : '__no_round__'
+        if (!roundMap.has(rk)) roundMap.set(rk, [])
+        roundMap.get(rk).push(m)
+      }
+
+      const sortedRounds = Array.from(roundMap.entries()).sort((a, b) => {
+        const ra = a[0] === '__no_round__' ? 9999 : Number(a[0])
+        const rb = b[0] === '__no_round__' ? 9999 : Number(b[0])
+        return ra - rb
+      })
+
+      const hasMultipleRounds = sortedRounds.length > 1
+
+      for (let i = 0; i < sortedRounds.length; i++) {
+        const [roundKey, roundMatches] = sortedRounds[i]
+        const sorted = [...roundMatches].sort(
+          (a, b) => new Date(a.utcDate || a.date) - new Date(b.utcDate || b.date)
+        )
+
+        let roundLocked
+        if (i === 0 || !hasMultipleRounds) {
+          // First round or single-round stage: hours-based lock on earliest match
+          roundLocked = sorted[0] ? isMatchLocked(sorted[0], betLockHours) : false
+        } else {
+          // Later rounds in multi-round (group) stage: lock until previous round all finished
+          const prevMatches = sortedRounds[i - 1][1]
+          roundLocked = !prevMatches.every(m => m.status === 'finished')
+        }
+
+        const roundLabel = hasMultipleRounds && roundKey !== '__no_round__'
+          ? `${stageLabel} — מחזור ${roundKey}`
+          : stageLabel
+
+        groups.push({ stageKey, stageLabel, roundKey, roundLabel, matches: sorted, locked: roundLocked })
+      }
+    }
+
+    return { futureGroups: groups, pastMatches: past }
+  }, [allMatches, activeTournament, betLockHours])
 
   const handleSave = async () => {
     if (locked) return
@@ -401,44 +516,64 @@ const MyBetsPage = () => {
       <div className="bets-section card">
         <div className="section-header">
           <h3>📋 ניחושי מחזורים</h3>
-          <span className="text-muted section-hint">ניתן לשנות עד {betLockHours} שעות לפני המשחק</span>
+          <span className="text-muted section-hint">ניתן לשנות עד {betLockHours} שעות לפני</span>
         </div>
+
+        {allMatches.length > 0 && (
+          <div className="match-tabs">
+            <button
+              className={`match-tab${matchTab === 'future' ? ' match-tab-active' : ''}`}
+              onClick={() => setMatchTab('future')}
+            >
+              ⏱️ עתידיים
+            </button>
+            <button
+              className={`match-tab${matchTab === 'past' ? ' match-tab-active' : ''}`}
+              onClick={() => setMatchTab('past')}
+            >
+              📊 היסטוריה
+            </button>
+          </div>
+        )}
 
         {allMatches.length === 0 && (
           <p className="text-muted mt-1">אין משחקים לטורניר זה עדיין</p>
         )}
 
-        {openStages.length === 0 && allMatches.length > 0 && (
-          <p className="text-muted mt-1">ניחושי המחזורים יפתחו בקרוב</p>
-        )}
-
-        {openStages.map(stage => {
-          const stageMatches = stage.value === '__all__'
-            ? allMatches
-            : allMatches.filter(m => m.stage === stage.value || String(m.round) === stage.value)
-          if (stageMatches.length === 0) return null
-          return (
-            <div key={stage.value} className="round-stage">
-              <h4 className="round-stage-title">{stage.label}</h4>
-              <div className="round-matches">
-                {stageMatches.map(match => {
-                  const matchLocked = isMatchLocked(match, betLockHours)
-                  const currentBet = matchBets[match.id] || {}
-                  return (
+        {matchTab === 'future' && (
+          <>
+            {futureGroups.length === 0 && allMatches.length > 0 && (
+              <p className="text-muted mt-1">אין משחקים עתידיים</p>
+            )}
+            {futureGroups.map(group => (
+              <div key={`${group.stageKey}-${group.roundKey}`} className="round-stage">
+                <h4 className="round-stage-title">
+                  {group.roundLabel}
+                  {group.locked && <span className="round-locked-badge">🔒 נעול</span>}
+                </h4>
+                <div className="round-matches">
+                  {group.matches.map(match => (
                     <MatchBetRow
                       key={match.id}
                       match={match}
-                      bet={currentBet}
-                      locked={matchLocked}
+                      bet={matchBets[match.id] || {}}
+                      locked={group.locked}
                       saving={savingMatch === match.id}
                       onSave={handleSaveMatchBet}
                     />
-                  )
-                })}
+                  ))}
+                </div>
               </div>
-            </div>
-          )
-        })}
+            ))}
+          </>
+        )}
+
+        {matchTab === 'past' && (
+          <PastMatchesTable
+            matches={pastMatches}
+            matchBets={matchBets}
+          />
+        )}
       </div>
     </div>
   )
