@@ -1,0 +1,183 @@
+.leaderboard-page h2 {
+  color: var(--color-primary);
+  margin-bottom: 0.25rem;
+}
+
+.lb-tournament-name {
+  font-size: 0.9rem;
+  margin-bottom: 1rem;
+}
+
+/* Tabs */
+.lb-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.lb-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--color-text);
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.lb-tab:hover { background: var(--color-bg); }
+
+.lb-tab-active {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+}
+
+.lb-tab-emblem {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+
+/* My position banner */
+.lb-my-position {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding: 0.85rem 1.25rem;
+  background: linear-gradient(135deg, #e0eaff 0%, #f0f4ff 100%);
+  border: 1px solid #c7d7ff;
+}
+
+.lb-my-rank {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: var(--color-primary);
+}
+
+.lb-my-label {
+  flex: 1;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.lb-my-points {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--color-secondary);
+}
+
+/* Search */
+.lb-search {
+  margin-bottom: 1rem;
+}
+
+/* Table card */
+.lb-table-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.lb-empty {
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.lb-table {
+  width: 100%;
+  border-collapse: collapse;
+  direction: rtl;
+}
+
+.lb-table thead tr {
+  background: var(--color-bg);
+  border-bottom: 2px solid var(--color-border);
+}
+
+.lb-table th {
+  padding: 0.7rem 1rem;
+  text-align: right;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.lb-row {
+  border-bottom: 1px solid var(--color-border);
+  transition: background var(--transition);
+}
+
+.lb-row:last-child { border-bottom: none; }
+.lb-row:hover { background: var(--color-bg); }
+
+/* Top 3 highlight */
+.lb-row-top1 { background: #fffbeb; }
+.lb-row-top2 { background: #f8fafc; }
+.lb-row-top3 { background: #fff7f0; }
+
+/* Current user highlight */
+.lb-row-me {
+  background: #e8f0fe !important;
+  font-weight: 600;
+}
+
+.lb-table td {
+  padding: 0.65rem 1rem;
+  vertical-align: middle;
+}
+
+.lb-rank {
+  width: 48px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--color-primary);
+}
+
+.lb-name {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.lb-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.lb-me-badge {
+  font-size: 0.72rem;
+  background: var(--color-primary);
+  color: #fff;
+  padding: 0.1rem 0.45rem;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.lb-points {
+  text-align: center;
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--color-secondary);
+  width: 80px;
+}
+
+@media (max-width: 600px) {
+  .lb-table th:nth-child(3),
+  .lb-table td:nth-child(3) {
+    /* points column stays visible on mobile */
+  }
+  .lb-avatar { width: 28px; height: 28px; }
+  .lb-me-badge { display: none; }
+}

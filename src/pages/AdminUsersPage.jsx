@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
 import { db } from '../services/firebase/config'
-import { approveUser, blockUser, setAdminRole } from '../services/firebase/users'
+import { approveUser, blockUser, setAdminRole, removeUser, demoteAdmin } from '../services/firebase/users'
+import { useAuth } from '../contexts/AuthContext'
 import { toast } from 'react-toastify'
+import { ROUTES } from '../utils/constants'
 import './AdminUsersPage.css'
 
 const STATUS_LABELS = {
@@ -25,17 +28,20 @@ const FILTERS = [
   { key: 'pending_approval', label: 'ממתינים' },
   { key: 'active',           label: 'פעילים'  },
   { key: 'blocked',          label: 'חסומים'  },
+  { key: 'admin',            label: 'מנהלים'  },
 ]
 
 const calcAge = (birthYear) =>
   birthYear ? new Date().getFullYear() - birthYear : null
 
 const AdminUsersPage = () => {
+  const { userProfile } = useAuth()
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [actionLoading, setActionLoading] = useState(null)
+  const [removingId, setRemovingId] = useState(null)
 
   useEffect(() => {
     const q = query(collection(db, 'users'), orderBy('createdAt', 'desc'))
@@ -59,8 +65,35 @@ const AdminUsersPage = () => {
     }
   }
 
+  const handleRemove = async (user) => {
+    if (user.id === userProfile?.id) { toast.error('לא ניתן להסיר את עצמך'); return }
+    if (!window.confirm(`למחוק את המשתמש "${user.displayName}"? פעולה זו בלתי הפיכה.`)) return
+    setRemovingId(user.id)
+    try {
+      await removeUser(user.id)
+      toast.success(`"${user.displayName}" הוסר.`)
+    } catch (err) {
+      toast.error('שגיאה בהסרה: ' + err.message)
+    } finally {
+      setRemovingId(null)
+    }
+  }
+
+  const handleDemote = async (user) => {
+    if (user.id === userProfile?.id) { toast.error('לא ניתן לשנות הרשאות עצמך'); return }
+    if (!window.confirm(`להוריד את "${user.displayName}" מתפקיד מנהל לחבר?`)) return
+    try {
+      await handleAction(user.id, demoteAdmin, 'הורד מנהל')
+    } catch (err) {
+      toast.error('שגיאה: ' + err.message)
+    }
+  }
+
   const filtered = users.filter((u) => {
-    const matchFilter = filter === 'all' || u.status === filter
+    const matchFilter =
+      filter === 'all' ? true :
+      filter === 'admin' ? u.role === 'admin' :
+      u.status === filter
     const matchSearch =
       !search ||
       u.displayName?.toLowerCase().includes(search.toLowerCase()) ||
@@ -72,6 +105,7 @@ const AdminUsersPage = () => {
 
   return (
     <div className="admin-users-page">
+      <Link to={ROUTES.ADMIN} className="back-link">← חזור לניהול</Link>
       <div className="admin-users-header">
         <h2>👥 ניהול משתמשים</h2>
         {pendingCount > 0 && (
@@ -113,9 +147,13 @@ const AdminUsersPage = () => {
               key={user.id}
               user={user}
               isLoading={actionLoading === user.id}
+              isRemoving={removingId === user.id}
+              currentUserId={userProfile?.id}
               onApprove={() => handleAction(user.id, approveUser, 'אושר')}
               onBlock={() => handleAction(user.id, blockUser, 'נחסם')}
               onMakeAdmin={() => handleAction(user.id, setAdminRole, 'הפך למנהל')}
+              onRemove={() => handleRemove(user)}
+              onDemote={() => handleDemote(user)}
             />
           ))}
         </div>
@@ -124,7 +162,7 @@ const AdminUsersPage = () => {
   )
 }
 
-const UserRow = ({ user, isLoading, onApprove, onBlock, onMakeAdmin }) => {
+const UserRow = ({ user, isLoading, isRemoving, currentUserId, onApprove, onBlock, onMakeAdmin, onRemove, onDemote }) => {
   const age = calcAge(user.birthYear)
   const statusInfo = STATUS_LABELS[user.status] || { label: user.status, cls: 'badge-muted' }
   const roleInfo   = ROLE_LABELS[user.role]     || { label: user.role,   cls: 'badge-muted' }
@@ -182,6 +220,18 @@ const UserRow = ({ user, isLoading, onApprove, onBlock, onMakeAdmin }) => {
         {user.status === 'blocked' && (
           <button className="btn btn-primary" onClick={onApprove} disabled={isLoading}>
             🔓 בטל חסימה
+          </button>
+        )}
+        {/* Demote admin button — shown for admins who are not the current user */}
+        {user.role === 'admin' && user.id !== currentUserId && (
+          <button className="btn btn-outline" onClick={onDemote} disabled={isLoading}>
+            ⬇️ הורד מנהל
+          </button>
+        )}
+        {/* Remove user button — not for current user, not for admins */}
+        {user.id !== currentUserId && user.role !== 'admin' && (
+          <button className="btn btn-danger" onClick={onRemove} disabled={isLoading || isRemoving}>
+            {isRemoving ? '⏳' : '🗑️ הסר'}
           </button>
         )}
         {isLoading && <span className="text-muted">שומר...</span>}

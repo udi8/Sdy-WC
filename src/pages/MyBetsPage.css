@@ -229,3 +229,132 @@
     max-width: 100%;
   }
 }
+
+/* ── Round bets ─────────────────────────────────────────────────────────── */
+
+.round-stage {
+  margin-bottom: 1.5rem;
+}
+
+.round-stage-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--color-primary);
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 2px solid var(--color-border);
+}
+
+.round-matches {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.match-bet-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  transition: opacity var(--transition);
+}
+
+.match-bet-locked {
+  opacity: 0.7;
+  background: #f8f9fa;
+}
+
+.match-bet-teams {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  justify-content: space-between;
+}
+
+.match-bet-team {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+  flex: 1;
+}
+
+.match-bet-team.away {
+  justify-content: flex-end;
+}
+
+.match-bet-badge {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.match-bet-inputs {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-shrink: 0;
+}
+
+.match-score-input {
+  width: 52px;
+  text-align: center;
+  padding: 0.3rem 0.25rem;
+  min-height: 36px;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.match-bet-colon {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--color-text-muted);
+}
+
+.match-bet-score-locked {
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--color-text-muted);
+  min-width: 60px;
+  text-align: center;
+}
+
+.match-bet-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.82rem;
+}
+
+.match-bet-save {
+  padding: 0.2rem 0.6rem;
+  min-height: 28px;
+  font-size: 0.85rem;
+}
+
+.match-bet-lock-badge {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+@media (max-width: 600px) {
+  .match-bet-teams {
+    flex-wrap: wrap;
+  }
+  .match-bet-team {
+    flex: none;
+    width: 100%;
+  }
+  .match-bet-team.away {
+    justify-content: flex-start;
+  }
+  .match-bet-inputs {
+    width: 100%;
+    justify-content: center;
+  }
+}

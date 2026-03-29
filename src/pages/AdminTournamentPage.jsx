@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
 import { db } from '../services/firebase/config'
 import { getLeague } from '../services/api/sportsDb'
@@ -7,6 +8,7 @@ import { importTournament, addManualTeams, activateTournament, deactivateTournam
 import { toast } from 'react-toastify'
 import './AdminTournamentPage.css'
 import { seasonToEndDate, seasonToStartDate } from '../utils/season'
+import { ROUTES } from '../utils/constants'
 
 const defaultSeason = () => {
   const y = new Date().getFullYear()
@@ -306,6 +308,7 @@ const AdminTournamentPage = () => {
 
   return (
     <div className="admin-tournament-page">
+      <Link to={ROUTES.ADMIN} className="back-link">← חזור לניהול</Link>
       <h2>🏆 יצירת טורניר</h2>
 
       {/* Popular list with search */}
