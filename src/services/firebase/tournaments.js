@@ -448,21 +448,22 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
 
   // ── 2. Decide fetch strategy ──────────────────────────────────────────────────
   // Tournament mode: ESPN provides stage entries with date ranges (WC, CL, etc.)
-  //   → fetch only group stage by calendar date range
+  //   → fetch ALL stage entries by calendar date range (not just group stage,
+  //     because CL 2024+ uses "League Phase" instead of "Group Stage")
   // League mode: no entries → sweep week-by-week across the full season
-  const groupEntry = calEntries.find((e) => e.label?.toLowerCase().includes('group'))
   const isTournament = calEntries.length > 0
 
-  // Fetch events:
-  // Tournament mode: one range call for the group stage dates (ESPN's single-date format
-  //   returns 0 for far-future dates, but the range format works correctly).
-  // League mode: week-by-week sweep across the full season (current/recent matches).
+  // eventsMap values carry an extra _stageValue so we can tag each match
+  // with the correct stage when writing to Firestore.
   const eventsMap = {}
-  if (isTournament && groupEntry) {
-    const from = groupEntry.startDate.slice(0, 10).replace(/-/g, '')
-    const to   = groupEntry.endDate.slice(0, 10).replace(/-/g, '')
-    const sb = await fetchESPNDateRange(sport, league, from, to).catch(() => ({ events: [] }))
-    for (const e of (sb.events || [])) eventsMap[e.id] = e
+  if (isTournament) {
+    for (const entry of calEntries) {
+      if (!entry.startDate) continue
+      const from = entry.startDate.slice(0, 10).replace(/-/g, '')
+      const to   = (entry.endDate || endDate).slice(0, 10).replace(/-/g, '')
+      const sb = await fetchESPNDateRange(sport, league, from, to).catch(() => ({ events: [] }))
+      for (const e of (sb.events || [])) eventsMap[e.id] = { ...e, _stageValue: entry.value }
+    }
   } else {
     const dates = []
     for (let d = new Date(startDate); d <= new Date(endDate); d.setDate(d.getDate() + 7)) {
@@ -514,7 +515,7 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
     value:     e.value,
     startDate: e.startDate,
     endDate:   e.endDate   || null,
-    imported:  groupEntry ? e.value === groupEntry.value : false,
+    imported:  true,
   }))
 
   await setDoc(doc(db, 'tournaments', tournamentId), {
@@ -533,7 +534,6 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
   })
 
   // ── 6. Write matches ──────────────────────────────────────────────────────────
-  const stageValue = groupEntry?.value || null
   let batch = writeBatch(db)
   let count = 0
   let matchCount = 0
@@ -550,7 +550,7 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
       time:     event.date?.slice(11, 16) || null,
       utcDate:  event.date || null,
       status:   espnMapStatus(event.status?.type?.name),
-      stage:    stageValue,
+      stage:    event._stageValue || null,
       round:    event.week?.number || null,
       homeTeam: { id: String(h.team.id), name: h.team.shortDisplayName || h.team.displayName, badge: logoMap[String(h.team.id)] || '' },
       awayTeam: { id: String(a.team.id), name: a.team.shortDisplayName || a.team.displayName, badge: logoMap[String(a.team.id)] || '' },
