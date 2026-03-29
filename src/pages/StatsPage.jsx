@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useTournament } from '../contexts/TournamentContext'
 import { collection, getDocs, doc, getDoc } from 'firebase/firestore'
 import { db } from '../services/firebase/config'
-import { getAllMatchBets, getAllStaticBets, scoreMatchBet } from '../services/firebase/bets'
+import { getAllMatchBets, getAllStaticBets, scoreMatchBet, getTournamentTeams, getTournamentPlayers } from '../services/firebase/bets'
 import './StatsPage.css'
 
 const ProgressBar = ({ value, max, color = 'var(--color-primary)' }) => (
@@ -50,12 +50,16 @@ const StatsPage = () => {
     setLoading(true)
     ;(async () => {
       try {
-        const [matchSnap, lbSnap, allMB, allSB] = await Promise.all([
+        const [matchSnap, lbSnap, allMB, allSB, teams, players] = await Promise.all([
           getDocs(collection(db, 'tournaments', selectedTournament.id, 'matches')),
           getDoc(doc(db, 'tournaments', selectedTournament.id, 'leaderboard', userProfile.id)),
           getAllMatchBets(selectedTournament.id),
           getAllStaticBets(selectedTournament.id),
+          getTournamentTeams(selectedTournament.id),
+          getTournamentPlayers(selectedTournament.id),
         ])
+        const teamMap = {}; teams.forEach(t => { teamMap[t.id] = t.name })
+        const playerMap = {}; players.forEach(p => { playerMap[p.id] = p.name })
 
         const finished = matchSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(m => m.status === 'finished')
         const myLb = lbSnap.exists() ? lbSnap.data() : null
@@ -87,7 +91,8 @@ const StatsPage = () => {
         }
         const topC = Object.entries(champ).sort((a, b) => b[1] - a[1])[0] || null
         const topS = Object.entries(scorer).sort((a, b) => b[1] - a[1])[0] || null
-        setTopChampion(topC); setTopScorer(topS)
+        setTopChampion(topC ? [teamMap[topC[0]] || topC[0], topC[1]] : null)
+        setTopScorer(topS ? [playerMap[topS[0]] || topS[0], topS[1]] : null)
 
         const exactCounts = {}
         for (const m of finished) {
