@@ -459,8 +459,12 @@ export const importFromESPN = async (sport, league, startDate, endDate) => {
   if (isTournament) {
     for (const entry of calEntries) {
       if (!entry.startDate) continue
-      const from = entry.startDate.slice(0, 10).replace(/-/g, '')
-      const to   = (entry.endDate || endDate).slice(0, 10).replace(/-/g, '')
+      const entryStart = entry.startDate.slice(0, 10)
+      const entryEnd = (entry.endDate || entry.startDate).slice(0, 10)
+      // Skip calendar entries completely outside the user's requested date range
+      if (entryEnd < startDate || entryStart > endDate) continue
+      const from = entryStart.replace(/-/g, '')
+      const to   = entryEnd.replace(/-/g, '')
       const sb = await fetchESPNDateRange(sport, league, from, to).catch(() => ({ events: [] }))
       for (const e of (sb.events || [])) eventsMap[e.id] = { ...e, _stageValue: entry.value }
     }
