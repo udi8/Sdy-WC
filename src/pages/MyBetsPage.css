@@ -358,3 +358,131 @@
     justify-content: center;
   }
 }
+
+/* ── Match tab switcher ─────────────────────────────────────────────────── */
+
+.match-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 1.25rem;
+  border-bottom: 2px solid var(--color-border);
+}
+
+.match-tab {
+  padding: 0.45rem 1.2rem;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 0.92rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.match-tab:hover { color: var(--color-primary); }
+
+.match-tab-active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+  font-weight: 700;
+}
+
+/* ── Round locked badge ─────────────────────────────────────────────────── */
+
+.round-locked-badge {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  margin-right: 0.6rem;
+}
+
+/* ── Past matches table ─────────────────────────────────────────────────── */
+
+.past-matches-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  margin-top: 0.5rem;
+}
+
+.past-matches-table th {
+  text-align: center;
+  padding: 0.45rem 0.5rem;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  border-bottom: 2px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.past-matches-table td {
+  padding: 0.5rem 0.5rem;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.past-matches-table tbody tr:last-child td { border-bottom: none; }
+
+.past-row-scored { background: #f0fdf4; }
+
+.past-date {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  font-size: 0.82rem;
+}
+
+.past-team {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.past-away {
+  justify-content: flex-end;
+}
+
+.past-badge {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.past-score {
+  text-align: center;
+  font-weight: 700;
+  font-size: 1rem;
+  white-space: nowrap;
+  color: var(--color-primary);
+  padding: 0 0.75rem;
+}
+
+.past-bet {
+  text-align: center;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.past-pts { text-align: center; }
+
+.pts-positive {
+  font-weight: 700;
+  color: var(--color-accent);
+  background: #e6f7ee;
+  padding: 0.1rem 0.5rem;
+  border-radius: 10px;
+  font-size: 0.85rem;
+}
+
+.pts-zero {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+@media (max-width: 600px) {
+  .past-matches-table { font-size: 0.78rem; }
+  .past-score { padding: 0 0.3rem; }
+  .past-matches-table th,
+  .past-matches-table td { padding: 0.4rem 0.3rem; }
+}
