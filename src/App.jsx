@@ -23,6 +23,8 @@ import AdminTournamentPage from './pages/AdminTournamentPage'
 import AdminBetsPage from './pages/AdminBetsPage'
 import AdminPrizesPage from './pages/AdminPrizesPage'
 import AdminStatusPage from './pages/AdminStatusPage'
+import ArchivePage from './pages/ArchivePage'
+import ArchiveViewPage from './pages/ArchiveViewPage'
 
 import { ROUTES } from './utils/constants'
 
@@ -117,6 +119,24 @@ const App = () => (
           element={
             <ProtectedRoute requireAdmin>
               <Layout><AdminStatusPage /></Layout>
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Archive */}
+        <Route
+          path={ROUTES.ARCHIVE}
+          element={
+            <ProtectedRoute>
+              <Layout><ArchivePage /></Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path={ROUTES.ARCHIVE_VIEW}
+          element={
+            <ProtectedRoute>
+              <Layout><ArchiveViewPage /></Layout>
             </ProtectedRoute>
           }
         />

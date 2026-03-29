@@ -4,7 +4,7 @@ import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
 import { db } from '../services/firebase/config'
 import { getLeague } from '../services/api/sportsDb'
 import { POPULAR_LEAGUES } from '../data/leagues'
-import { importTournament, addManualTeams, activateTournament, deactivateTournament, deleteTournament, importFromFootballData, importFromESPN, syncTournamentMatches, syncTeamBadges } from '../services/firebase/tournaments'
+import { importTournament, addManualTeams, activateTournament, deactivateTournament, deleteTournament, importFromFootballData, importFromESPN, syncTournamentMatches, syncTeamBadges, saveTournamentLiveStats } from '../services/firebase/tournaments'
 import { toast } from 'react-toastify'
 import './AdminTournamentPage.css'
 import { seasonToEndDate, seasonToStartDate } from '../utils/season'
@@ -39,6 +39,9 @@ const AdminTournamentPage = () => {
   const [espnImporting, setEspnImporting] = useState(false)
   const [espnImportingId, setEspnImportingId] = useState(null)
   const [espnProgress, setEspnProgress]   = useState('')
+  const [liveStatsOpen, setLiveStatsOpen] = useState({})
+  const [liveStatsDraft, setLiveStatsDraft] = useState({})
+  const [savingLiveStats, setSavingLiveStats] = useState(null)
 
   useEffect(() => {
     const q = query(collection(db, 'tournaments'), orderBy('createdAt', 'desc'))
@@ -234,6 +237,55 @@ const AdminTournamentPage = () => {
       setEspnProgress('')
     } finally {
       setEspnImporting(false)
+    }
+  }
+
+  const toggleLiveStats = (t) => {
+    setLiveStatsOpen(p => ({ ...p, [t.id]: !p[t.id] }))
+    if (!liveStatsDraft[t.id]) {
+      const ls = t.liveStats || {}
+      setLiveStatsDraft(p => ({
+        ...p,
+        [t.id]: {
+          scorerName:   ls.topScorer?.name     || '',
+          scorerTeam:   ls.topScorer?.teamName || '',
+          scorerGoals:  ls.topScorer?.goals    ?? '',
+          yellowCards:  ls.yellowCards         ?? '',
+          redCards:     ls.redCards            ?? '',
+          pos1:         ls.standings?.[0]?.teamName || '',
+          pos2:         ls.standings?.[1]?.teamName || '',
+          pos3:         ls.standings?.[2]?.teamName || '',
+          pos4:         ls.standings?.[3]?.teamName || '',
+        }
+      }))
+    }
+  }
+
+  const updateLiveDraft = (tId, field, val) =>
+    setLiveStatsDraft(p => ({ ...p, [tId]: { ...p[tId], [field]: val } }))
+
+  const handleSaveLiveStats = async (t) => {
+    const d = liveStatsDraft[t.id] || {}
+    const liveStats = {
+      topScorer: {
+        name:     d.scorerName.trim(),
+        teamName: d.scorerTeam.trim(),
+        goals:    Number(d.scorerGoals) || 0,
+      },
+      yellowCards: Number(d.yellowCards) || 0,
+      redCards:    Number(d.redCards)    || 0,
+      standings: [d.pos1, d.pos2, d.pos3, d.pos4]
+        .map((n, i) => ({ position: i + 1, teamName: n.trim() }))
+        .filter(s => s.teamName),
+    }
+    setSavingLiveStats(t.id)
+    try {
+      await saveTournamentLiveStats(t.id, liveStats)
+      toast.success('✅ נתונים חיים נשמרו')
+    } catch (err) {
+      toast.error('שגיאה: ' + err.message)
+    } finally {
+      setSavingLiveStats(null)
     }
   }
 
@@ -529,7 +581,56 @@ const AdminTournamentPage = () => {
                   >
                     {deletingId === t.id ? '⏳' : '🗑️'}
                   </button>
+                  <button
+                    className="btn btn-ghost"
+                    onClick={() => toggleLiveStats(t)}
+                    title="עדכן נתוני טורניר חיים"
+                  >
+                    📊
+                  </button>
                 </div>
+                {liveStatsOpen[t.id] && liveStatsDraft[t.id] && (
+                  <div className="live-stats-editor">
+                    <strong className="live-stats-title">📊 עדכן נתוני טורניר חיים</strong>
+                    <div className="live-stats-grid">
+                      <label>מלך שערים — שם</label>
+                      <input className="form-control" value={liveStatsDraft[t.id].scorerName}
+                        onChange={e => updateLiveDraft(t.id, 'scorerName', e.target.value)} placeholder="שם שחקן" />
+                      <label>מלך שערים — קבוצה</label>
+                      <input className="form-control" value={liveStatsDraft[t.id].scorerTeam}
+                        onChange={e => updateLiveDraft(t.id, 'scorerTeam', e.target.value)} placeholder="שם קבוצה" />
+                      <label>מלך שערים — שערים</label>
+                      <input className="form-control" type="number" min="0" value={liveStatsDraft[t.id].scorerGoals}
+                        onChange={e => updateLiveDraft(t.id, 'scorerGoals', e.target.value)} placeholder="0" />
+                      <label>כרטיסים צהובים</label>
+                      <input className="form-control" type="number" min="0" value={liveStatsDraft[t.id].yellowCards}
+                        onChange={e => updateLiveDraft(t.id, 'yellowCards', e.target.value)} placeholder="0" />
+                      <label>כרטיסים אדומים</label>
+                      <input className="form-control" type="number" min="0" value={liveStatsDraft[t.id].redCards}
+                        onChange={e => updateLiveDraft(t.id, 'redCards', e.target.value)} placeholder="0" />
+                      <label>מקום 1</label>
+                      <input className="form-control" value={liveStatsDraft[t.id].pos1}
+                        onChange={e => updateLiveDraft(t.id, 'pos1', e.target.value)} placeholder="שם קבוצה" />
+                      <label>מקום 2</label>
+                      <input className="form-control" value={liveStatsDraft[t.id].pos2}
+                        onChange={e => updateLiveDraft(t.id, 'pos2', e.target.value)} placeholder="שם קבוצה" />
+                      <label>מקום 3</label>
+                      <input className="form-control" value={liveStatsDraft[t.id].pos3}
+                        onChange={e => updateLiveDraft(t.id, 'pos3', e.target.value)} placeholder="שם קבוצה" />
+                      <label>מקום 4</label>
+                      <input className="form-control" value={liveStatsDraft[t.id].pos4}
+                        onChange={e => updateLiveDraft(t.id, 'pos4', e.target.value)} placeholder="שם קבוצה" />
+                    </div>
+                    <button
+                      className="btn btn-primary"
+                      style={{ marginTop: '0.75rem' }}
+                      onClick={() => handleSaveLiveStats(t)}
+                      disabled={savingLiveStats === t.id}
+                    >
+                      {savingLiveStats === t.id ? '⏳ שומר...' : '💾 שמור נתונים'}
+                    </button>
+                  </div>
+                )}
               </div>
             )
           })}

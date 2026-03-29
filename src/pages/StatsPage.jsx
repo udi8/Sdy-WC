@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useTournament } from '../contexts/TournamentContext'
 import { collection, getDocs, doc, getDoc } from 'firebase/firestore'
 import { db } from '../services/firebase/config'
-import { getAllMatchBets, getAllStaticBets, scoreMatchBet, getTournamentTeams, getTournamentPlayers } from '../services/firebase/bets'
+import { getAllMatchBets, getAllStaticBets, getStaticBet, scoreMatchBet, getTournamentTeams, getTournamentPlayers } from '../services/firebase/bets'
 import './StatsPage.css'
 
 const ProgressBar = ({ value, max, color = 'var(--color-primary)' }) => (
@@ -38,6 +38,9 @@ const StatsPage = () => {
   const [bestMatch, setBestMatch] = useState(null)
   const [allStaticBets, setAllStaticBets] = useState([])
   const [allMatchBets, setAllMatchBets] = useState([])
+  const [myStaticBet, setMyStaticBet] = useState(null)
+  const [teamMap, setTeamMap] = useState({})
+  const [playerMap, setPlayerMap] = useState({})
 
   useEffect(() => {
     if (activeTournaments.length > 0 && !selectedId) setSelectedId(activeTournaments[0].id)
@@ -50,16 +53,19 @@ const StatsPage = () => {
     setLoading(true)
     ;(async () => {
       try {
-        const [matchSnap, lbSnap, allMB, allSB, teams, players] = await Promise.all([
+        const [matchSnap, lbSnap, allMB, allSB, teams, players, mySB] = await Promise.all([
           getDocs(collection(db, 'tournaments', selectedTournament.id, 'matches')),
           getDoc(doc(db, 'tournaments', selectedTournament.id, 'leaderboard', userProfile.id)),
           getAllMatchBets(selectedTournament.id),
           getAllStaticBets(selectedTournament.id),
           getTournamentTeams(selectedTournament.id),
           getTournamentPlayers(selectedTournament.id),
+          getStaticBet(userProfile.id, selectedTournament.id),
         ])
-        const teamMap = {}; teams.forEach(t => { teamMap[t.id] = t.name })
-        const playerMap = {}; players.forEach(p => { playerMap[p.id] = p.name })
+        const tMap = {}; teams.forEach(t => { tMap[t.id] = t.name })
+        const pMap = {}; players.forEach(p => { pMap[p.id] = p.name })
+        setTeamMap(tMap); setPlayerMap(pMap)
+        setMyStaticBet(mySB)
 
         const finished = matchSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(m => m.status === 'finished')
         const myLb = lbSnap.exists() ? lbSnap.data() : null
@@ -91,8 +97,8 @@ const StatsPage = () => {
         }
         const topC = Object.entries(champ).sort((a, b) => b[1] - a[1])[0] || null
         const topS = Object.entries(scorer).sort((a, b) => b[1] - a[1])[0] || null
-        setTopChampion(topC ? [teamMap[topC[0]] || topC[0], topC[1]] : null)
-        setTopScorer(topS ? [playerMap[topS[0]] || topS[0], topS[1]] : null)
+        setTopChampion(topC ? [tMap[topC[0]] || topC[0], topC[1]] : null)
+        setTopScorer(topS ? [pMap[topS[0]] || topS[0], topS[1]] : null)
 
         const exactCounts = {}
         for (const m of finished) {
@@ -199,6 +205,81 @@ const StatsPage = () => {
               </ul>
             )}
           </section>
+
+          {/* Live stats comparison */}
+          {selectedTournament.liveStats && myStaticBet && (() => {
+            const ls = selectedTournament.liveStats
+            const myChampion   = teamMap[myStaticBet.champion]   || myStaticBet.champion   || '—'
+            const myRunnerUp   = teamMap[myStaticBet.runnerUp]   || myStaticBet.runnerUp   || '—'
+            const myTopScorer  = playerMap[myStaticBet.topScorer] || myStaticBet.topScorer || '—'
+            const myYellow     = myStaticBet.yellowCards ?? '—'
+            const myRed        = myStaticBet.redCards    ?? '—'
+            const livePos1     = ls.standings?.[0]?.teamName || '—'
+            const livePos2     = ls.standings?.[1]?.teamName || '—'
+            return (
+              <section className="stats-section">
+                <h3 className="stats-section-title">📊 מצב הטורניר vs הניחוש שלי</h3>
+                <div className="live-compare-grid">
+                  <div className="live-compare-row">
+                    <span className="live-compare-label">מלך שערים</span>
+                    <div className="live-compare-values">
+                      <span className="live-compare-mine">ניחשת: <strong>{myTopScorer}</strong></span>
+                      <span className="live-compare-live">
+                        מוביל כרגע: <strong>{ls.topScorer?.name || '—'}</strong>
+                        {ls.topScorer?.name && ` · ${ls.topScorer.teamName || ''} · ${ls.topScorer.goals} שערים`}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="live-compare-row">
+                    <span className="live-compare-label">אלוף</span>
+                    <div className="live-compare-values">
+                      <span className="live-compare-mine">ניחשת: <strong>{myChampion}</strong></span>
+                      <span className="live-compare-live">
+                        מוביל כרגע: <strong>{livePos1}</strong>
+                        {myStaticBet.champion && livePos1 !== '—' && (
+                          <span className={myChampion === livePos1 ? 'live-match-yes' : 'live-match-no'}>
+                            {myChampion === livePos1 ? ' ✅' : ' ❌'}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="live-compare-row">
+                    <span className="live-compare-label">סגן אלוף</span>
+                    <div className="live-compare-values">
+                      <span className="live-compare-mine">ניחשת: <strong>{myRunnerUp}</strong></span>
+                      <span className="live-compare-live">
+                        מוביל כרגע: <strong>{livePos2}</strong>
+                        {myStaticBet.runnerUp && livePos2 !== '—' && (
+                          <span className={myRunnerUp === livePos2 ? 'live-match-yes' : 'live-match-no'}>
+                            {myRunnerUp === livePos2 ? ' ✅' : ' ❌'}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                  {(myYellow !== '—' || ls.yellowCards) && (
+                    <div className="live-compare-row">
+                      <span className="live-compare-label">🟨 כרטיסים צהובים</span>
+                      <div className="live-compare-values">
+                        <span className="live-compare-mine">ניחשת: <strong>{myYellow}</strong></span>
+                        <span className="live-compare-live">בפועל: <strong>{ls.yellowCards ?? '—'}</strong></span>
+                      </div>
+                    </div>
+                  )}
+                  {(myRed !== '—' || ls.redCards) && (
+                    <div className="live-compare-row">
+                      <span className="live-compare-label">🟥 כרטיסים אדומים</span>
+                      <div className="live-compare-values">
+                        <span className="live-compare-mine">ניחשת: <strong>{myRed}</strong></span>
+                        <span className="live-compare-live">בפועל: <strong>{ls.redCards ?? '—'}</strong></span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </section>
+            )
+          })()}
         </>
       )}
     </div>

@@ -7,6 +7,7 @@ const TournamentContext = createContext(null)
 export const TournamentProvider = ({ children }) => {
   const [activeTournament, setActiveTournament] = useState(null)
   const [activeTournaments, setActiveTournaments] = useState([])
+  const [finishedTournaments, setFinishedTournaments] = useState([])
   const [tournaments, setTournaments] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -18,6 +19,7 @@ export const TournamentProvider = ({ children }) => {
       setTournaments(list)
       const actives = list.filter((t) => t.status === 'active')
       setActiveTournaments(actives)
+      setFinishedTournaments(list.filter((t) => t.status === 'finished'))
       const active = actives[0] || list[0] || null
       setActiveTournament(active)
       setLoading(false)
@@ -26,7 +28,7 @@ export const TournamentProvider = ({ children }) => {
   }, [])
 
   return (
-    <TournamentContext.Provider value={{ activeTournament, activeTournaments, tournaments, loading }}>
+    <TournamentContext.Provider value={{ activeTournament, activeTournaments, finishedTournaments, tournaments, loading }}>
       {children}
     </TournamentContext.Provider>
   )

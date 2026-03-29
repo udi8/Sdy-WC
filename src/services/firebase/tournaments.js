@@ -275,6 +275,9 @@ export const addManualTeams = async (tournamentId, names) => {
   return newTeams.length
 }
 
+export const saveTournamentLiveStats = async (tournamentId, liveStats) =>
+  updateDoc(doc(db, 'tournaments', tournamentId), { liveStats, updatedAt: serverTimestamp() })
+
 export const activateTournament = (tournamentId) =>
   updateDoc(doc(db, 'tournaments', tournamentId), {
     status: 'active', updatedAt: serverTimestamp(),

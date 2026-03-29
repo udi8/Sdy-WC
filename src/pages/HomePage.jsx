@@ -171,7 +171,10 @@ const HomePage = () => {
                   <div className="home-rank-points">{myPoints} נקודות</div>
                 </>
               ) : (
-                <div className="home-rank-empty">טרם נרשמת לטבלה</div>
+                <div className="home-rank-empty">
+                  <div className="home-rank-zero">0 נקודות</div>
+                  <div className="home-rank-sublabel">ניקוד יחושב אחרי אישור תוצאות</div>
+                </div>
               )}
             </div>
 

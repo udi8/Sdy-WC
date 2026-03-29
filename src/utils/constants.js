@@ -13,6 +13,8 @@ export const ROUTES = {
   ADMIN_BETS: '/admin/bets',
   ADMIN_PRIZES: '/admin/prizes',
   ADMIN_STATUS: '/admin/status',
+  ARCHIVE: '/archive',
+  ARCHIVE_VIEW: '/archive/:tournamentId',
 }
 
 export const USER_STATUS = {

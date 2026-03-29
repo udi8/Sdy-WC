@@ -96,7 +96,7 @@ const SearchSelect = ({ value, onChange, options, placeholder, disabled }) => {
   )
 }
 
-const MatchBetRow = ({ match, bet, locked, saving, onSave }) => {
+const MatchBetRow = ({ match, bet, locked, saving, onSave, onPendingChange }) => {
   const [home, setHome] = useState(bet.home != null ? String(bet.home) : '')
   const [away, setAway] = useState(bet.away != null ? String(bet.away) : '')
 
@@ -111,6 +111,15 @@ const MatchBetRow = ({ match, bet, locked, saving, onSave }) => {
   const dateStr = match.date || match.utcDate?.slice(0, 10) || ''
 
   const hasChanged = String(home) !== String(bet.home ?? '') || String(away) !== String(bet.away ?? '')
+
+  const handleHomeChange = (v) => {
+    setHome(v)
+    onPendingChange?.(match.id, v, away)
+  }
+  const handleAwayChange = (v) => {
+    setAway(v)
+    onPendingChange?.(match.id, home, v)
+  }
 
   return (
     <div className={`match-bet-row${locked ? ' match-bet-locked' : ''}`}>
@@ -130,7 +139,7 @@ const MatchBetRow = ({ match, bet, locked, saving, onSave }) => {
                 type="number" min="0" max="30"
                 className="form-control match-score-input"
                 value={home}
-                onChange={e => setHome(e.target.value)}
+                onChange={e => handleHomeChange(e.target.value)}
                 disabled={saving}
               />
               <span className="match-bet-colon">:</span>
@@ -138,7 +147,7 @@ const MatchBetRow = ({ match, bet, locked, saving, onSave }) => {
                 type="number" min="0" max="30"
                 className="form-control match-score-input"
                 value={away}
-                onChange={e => setAway(e.target.value)}
+                onChange={e => handleAwayChange(e.target.value)}
                 disabled={saving}
               />
             </>
@@ -153,7 +162,7 @@ const MatchBetRow = ({ match, bet, locked, saving, onSave }) => {
         <span className="text-muted">{dateStr} · {timeStr}</span>
         {!locked && hasChanged && (
           <button
-            className="btn btn-primary btn-sm match-bet-save"
+            className="btn btn-ghost btn-sm match-bet-save"
             onClick={() => onSave(match.id, home, away)}
             disabled={saving || home === '' || away === ''}
           >
@@ -240,8 +249,10 @@ const MyBetsPage = () => {
   const [allMatches, setAllMatches]   = useState([])
   const [matchBets, setMatchBets]     = useState({})
   const [betLockHours, setBetLockHours] = useState(24)
-  const [savingMatch, setSavingMatch] = useState(null)
-  const [matchTab, setMatchTab]       = useState('future')
+  const [savingMatch, setSavingMatch]   = useState(null)
+  const [savingRound, setSavingRound]   = useState(false)
+  const [pendingBets, setPendingBets]   = useState({})
+  const [matchTab, setMatchTab]         = useState('future')
 
   useEffect(() => {
     if (activeTournaments.length === 0) return
@@ -260,6 +271,7 @@ const MyBetsPage = () => {
     setAllMatches([])
     setMatchBets({})
     setMatchTab('future')
+    setPendingBets({})
     Promise.all([
       getTournamentTeams(activeTournament.id, activeTournament.fromDate || null),
       getTournamentPlayers(activeTournament.id),
@@ -294,17 +306,50 @@ const MyBetsPage = () => {
 
   const set = (field, value) => setForm((f) => ({ ...f, [field]: value }))
 
+  const handlePendingChange = (matchId, home, away) => {
+    setPendingBets(prev => ({ ...prev, [matchId]: { home, away } }))
+  }
+
   const handleSaveMatchBet = async (matchId, home, away) => {
     if (home === '' || away === '') return
     setSavingMatch(matchId)
     try {
       await saveMatchBet(userProfile.id, activeTournament.id, matchId, Number(home), Number(away))
       setMatchBets(prev => ({ ...prev, [matchId]: { home: Number(home), away: Number(away) } }))
+      setPendingBets(prev => { const n = { ...prev }; delete n[matchId]; return n })
       toast.success('✅ ניחוש נשמר!')
     } catch (err) {
       toast.error('שגיאה בשמירה: ' + err.message)
     } finally {
       setSavingMatch(null)
+    }
+  }
+
+  const handleSaveRound = async (matchIds) => {
+    const toSave = matchIds.filter(id => {
+      const p = pendingBets[id]
+      return p && p.home !== '' && p.away !== ''
+    })
+    if (toSave.length === 0) return
+    setSavingRound(true)
+    try {
+      await Promise.all(toSave.map(id => {
+        const { home, away } = pendingBets[id]
+        return saveMatchBet(userProfile.id, activeTournament.id, id, Number(home), Number(away))
+      }))
+      const updates = {}
+      const cleared = { ...pendingBets }
+      for (const id of toSave) {
+        updates[id] = { home: Number(pendingBets[id].home), away: Number(pendingBets[id].away) }
+        delete cleared[id]
+      }
+      setMatchBets(prev => ({ ...prev, ...updates }))
+      setPendingBets(cleared)
+      toast.success(`✅ ${toSave.length} ניחושים נשמרו!`)
+    } catch (err) {
+      toast.error('שגיאה בשמירה: ' + err.message)
+    } finally {
+      setSavingRound(false)
     }
   }
 
@@ -545,26 +590,42 @@ const MyBetsPage = () => {
             {futureGroups.length === 0 && allMatches.length > 0 && (
               <p className="text-muted mt-1">אין משחקים עתידיים</p>
             )}
-            {futureGroups.map(group => (
-              <div key={`${group.stageKey}-${group.roundKey}`} className="round-stage">
-                <h4 className="round-stage-title">
-                  {group.roundLabel}
-                  {group.locked && <span className="round-locked-badge">🔒 נעול</span>}
-                </h4>
-                <div className="round-matches">
-                  {group.matches.map(match => (
-                    <MatchBetRow
-                      key={match.id}
-                      match={match}
-                      bet={matchBets[match.id] || {}}
-                      locked={group.locked}
-                      saving={savingMatch === match.id}
-                      onSave={handleSaveMatchBet}
-                    />
-                  ))}
+            {futureGroups.map(group => {
+              const roundPending = group.matches.some(m => {
+                const p = pendingBets[m.id]
+                return p && p.home !== '' && p.away !== ''
+              })
+              return (
+                <div key={`${group.stageKey}-${group.roundKey}`} className="round-stage">
+                  <h4 className="round-stage-title">
+                    {group.roundLabel}
+                    {group.locked && <span className="round-locked-badge">🔒 נעול</span>}
+                  </h4>
+                  <div className="round-matches">
+                    {group.matches.map(match => (
+                      <MatchBetRow
+                        key={match.id}
+                        match={match}
+                        bet={matchBets[match.id] || {}}
+                        locked={group.locked}
+                        saving={savingMatch === match.id}
+                        onSave={handleSaveMatchBet}
+                        onPendingChange={handlePendingChange}
+                      />
+                    ))}
+                  </div>
+                  {!group.locked && roundPending && (
+                    <button
+                      className="btn btn-primary save-round-btn"
+                      onClick={() => handleSaveRound(group.matches.map(m => m.id))}
+                      disabled={savingRound}
+                    >
+                      {savingRound ? '⏳ שומר...' : '💾 שמור סבב'}
+                    </button>
+                  )}
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </>
         )}
 

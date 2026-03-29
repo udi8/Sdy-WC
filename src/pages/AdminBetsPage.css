@@ -206,3 +206,55 @@
 .score-zero {
   color: var(--color-text-muted);
 }
+
+/* ── Lock tab redesign ──────────────────────────────────────────────────── */
+
+.lock-logic-box {
+  margin-top: 1.25rem;
+  padding: 0.75rem 1rem;
+  background: #f0f4f8;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+}
+
+.lock-logic-title {
+  display: block;
+  font-size: 0.88rem;
+  color: var(--color-text-muted);
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.lock-logic-list {
+  margin: 0;
+  padding-right: 1.25rem;
+  font-size: 0.88rem;
+  line-height: 1.7;
+}
+
+.lock-status-section {
+  margin-top: 1.25rem;
+}
+
+.lock-status-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.5rem;
+  font-size: 0.88rem;
+}
+
+.lock-status-table td {
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.lock-status-table tr:last-child td { border-bottom: none; }
+
+.lock-row-locked { background: #fef3c7; }
+.lock-row-open   { background: #f0fdf4; }
+
+.lock-row-label  { font-weight: 600; }
+.lock-row-badge  { white-space: nowrap; font-weight: 700; }
+.lock-row-reason { color: var(--color-text-muted); font-size: 0.82rem; }

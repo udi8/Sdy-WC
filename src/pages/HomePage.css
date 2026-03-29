@@ -92,8 +92,17 @@
 }
 
 .home-rank-empty {
-  font-size: 0.9rem;
+  text-align: center;
+}
+.home-rank-zero {
+  font-size: 1.5rem;
+  font-weight: 700;
   color: var(--color-text-muted);
+}
+.home-rank-sublabel {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  margin-top: 0.3rem;
 }
 
 /* Matches column */

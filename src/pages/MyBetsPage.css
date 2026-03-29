@@ -391,6 +391,11 @@
 
 /* ── Round locked badge ─────────────────────────────────────────────────── */
 
+.save-round-btn {
+  margin-top: 0.75rem;
+  width: 100%;
+}
+
 .round-locked-badge {
   font-size: 0.78rem;
   font-weight: 500;

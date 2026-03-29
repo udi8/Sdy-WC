@@ -9,6 +9,7 @@ import {
   getAllStaticBets,
   submitMatchResult,
   scoreMatchBet,
+  isMatchLocked,
   getTournamentTeams,
   getTournamentPlayers,
 } from '../services/firebase/bets'
@@ -44,7 +45,7 @@ const formatMatchDate = (utcDate) => {
 
 // ── Sub-component: Lock Tab ────────────────────────────────────────────────────
 
-const LockTab = ({ lockHours, setLockHours, savingLock, setSavingLock }) => {
+const LockTab = ({ lockHours, setLockHours, savingLock, setSavingLock, matches, tournament }) => {
   const handleSave = async () => {
     if (lockHours === '' || isNaN(Number(lockHours)) || Number(lockHours) < 0) {
       toast.error('יש להזין מספר שעות תקין')
@@ -62,11 +63,76 @@ const LockTab = ({ lockHours, setLockHours, savingLock, setSavingLock }) => {
     }
   }
 
+  // Build round groups with lock status — same logic as MyBetsPage futureGroups
+  const roundGroups = (() => {
+    if (!tournament || matches.length === 0) return []
+    const stageOrder = (tournament.stages || []).map(s => s.value)
+    const stageMap = new Map()
+    for (const m of matches) {
+      const key = m.stage || '__no_stage__'
+      if (!stageMap.has(key)) stageMap.set(key, [])
+      stageMap.get(key).push(m)
+    }
+    const stageEntries = Array.from(stageMap.entries()).sort((a, b) => {
+      const ai = stageOrder.indexOf(a[0]); const bi = stageOrder.indexOf(b[0])
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
+    })
+    const groups = []
+    for (const [stageKey, stageMatches] of stageEntries) {
+      const stageMeta = (tournament.stages || []).find(s => s.value === stageKey)
+      const stageLabel = stageMeta?.label || (stageKey === '__no_stage__' ? 'משחקים' : stageKey)
+      const roundMap = new Map()
+      for (const m of stageMatches) {
+        const rk = m.round != null ? m.round : '__no_round__'
+        if (!roundMap.has(rk)) roundMap.set(rk, [])
+        roundMap.get(rk).push(m)
+      }
+      const sortedRounds = Array.from(roundMap.entries()).sort((a, b) => {
+        const ra = a[0] === '__no_round__' ? 9999 : Number(a[0])
+        const rb = b[0] === '__no_round__' ? 9999 : Number(b[0])
+        return ra - rb
+      })
+      const hasMultipleRounds = sortedRounds.length > 1
+      for (let i = 0; i < sortedRounds.length; i++) {
+        const [roundKey, roundMatches] = sortedRounds[i]
+        const sorted = [...roundMatches].sort(
+          (a, b) => new Date(a.utcDate || a.date) - new Date(b.utcDate || b.date)
+        )
+        let locked, reason
+        if (i === 0 || !hasMultipleRounds) {
+          locked = sorted[0] ? isMatchLocked(sorted[0], lockHours) : false
+          if (locked) {
+            reason = 'כל המשחקים התחילו'
+          } else {
+            const first = sorted[0]
+            if (first?.utcDate || first?.date) {
+              const ms = new Date(first.utcDate || first.date) - Date.now()
+              const hrs = Math.round(ms / 3600000)
+              reason = hrs > 0 ? `${hrs} שעות עד הראשון` : 'עומד להתחיל'
+            } else {
+              reason = ''
+            }
+          }
+        } else {
+          const prevMatches = sortedRounds[i - 1][1]
+          const prevDone = prevMatches.every(m => m.status === 'finished')
+          locked = !prevDone
+          reason = locked ? `ממתין לסיום מחזור ${sortedRounds[i - 1][0]}` : `מחזור ${sortedRounds[i - 1][0]} הסתיים`
+        }
+        const roundLabel = hasMultipleRounds && roundKey !== '__no_round__'
+          ? `${stageLabel} — מחזור ${roundKey}`
+          : stageLabel
+        groups.push({ roundLabel, locked, reason })
+      }
+    }
+    return groups
+  })()
+
   return (
     <div className="card lock-tab-card">
       <h3>🔒 הגדרת נעילת ניחושים</h3>
       <div className="lock-tab-row">
-        <span className="lock-tab-label">נעל ניחושים</span>
+        <span className="lock-tab-label">שעות נעילה לפני תחילת כל סבב</span>
         <input
           type="number"
           className="form-control lock-hours-input"
@@ -75,7 +141,7 @@ const LockTab = ({ lockHours, setLockHours, savingLock, setSavingLock }) => {
           max={168}
           onChange={(e) => setLockHours(Number(e.target.value))}
         />
-        <span className="lock-tab-label">שעות לפני תחילת המשחק</span>
+        <span className="lock-tab-label">שעות</span>
       </div>
       <button
         className="btn btn-primary"
@@ -84,9 +150,32 @@ const LockTab = ({ lockHours, setLockHours, savingLock, setSavingLock }) => {
       >
         {savingLock ? 'שומר...' : '💾 שמור הגדרה'}
       </button>
-      <p className="lock-tab-note">
-        כאשר נותרות פחות מ-{lockHours} שעות למשחק, הניחושים ננעלים אוטומטית
-      </p>
+
+      <div className="lock-logic-box">
+        <strong className="lock-logic-title">לוגיקת הנעילה האוטומטית</strong>
+        <ul className="lock-logic-list">
+          <li>שלב הבתים: מחזור 1 ננעל <strong>{lockHours}</strong> שעות לפני תחילתו</li>
+          <li>מחזורים 2, 3... ננעלים אוטומטית כשהמחזור הקודם מסתיים</li>
+          <li>שלבי נוק-אאוט: כל שלב ננעל <strong>{lockHours}</strong> שעות לפני המשחק הראשון</li>
+        </ul>
+      </div>
+
+      {roundGroups.length > 0 && (
+        <div className="lock-status-section">
+          <strong className="lock-logic-title">מצב נעילה נוכחי</strong>
+          <table className="lock-status-table">
+            <tbody>
+              {roundGroups.map((g, i) => (
+                <tr key={i} className={g.locked ? 'lock-row-locked' : 'lock-row-open'}>
+                  <td className="lock-row-label">{g.roundLabel}</td>
+                  <td className="lock-row-badge">{g.locked ? '🔒 נעול' : '🔓 פתוח'}</td>
+                  <td className="lock-row-reason">{g.reason}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
@@ -469,6 +558,8 @@ const AdminBetsPage = () => {
               setLockHours={setLockHours}
               savingLock={savingLock}
               setSavingLock={setSavingLock}
+              matches={matches}
+              tournament={activeTournaments.find(t => t.id === selectedTournId) || null}
             />
           )}
 

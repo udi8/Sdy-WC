@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
+import { useTournament } from '../../contexts/TournamentContext'
 import { signOutUser } from '../../services/firebase/auth'
 import { ROUTES } from '../../utils/constants'
 import './Navbar.css'
 
 const Navbar = () => {
   const { userProfile, isAdmin, isApproved } = useAuth()
+  const { finishedTournaments } = useTournament()
   const [menuOpen, setMenuOpen] = useState(false)
   const location = useLocation()
 
@@ -64,6 +66,13 @@ const Navbar = () => {
                 📈 סטטיסטיקות
               </Link>
             </li>
+            {finishedTournaments.length > 0 && (
+              <li>
+                <Link to={ROUTES.ARCHIVE} className={isActive(ROUTES.ARCHIVE)} onClick={closeMenu}>
+                  📦 ארכיון
+                </Link>
+              </li>
+            )}
           </>
         )}
 
